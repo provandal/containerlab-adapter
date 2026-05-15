@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "containerlab-adapter"
+version = "0.1.0a0"
+description = "HarnessIT Substrate Adapter for containerlab + Cumulus VX"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "provandal.dev" }]
+dependencies = [
+    "paramiko",      # SSH into Cumulus VX containers for telemetry
+    "python-dotenv", # optional SSH key path overrides
+    "pyyaml",        # read/emit containerlab topology specs
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"containerlab_adapter.topologies" = ["*.clab.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+markers = [
+    "requires_containerlab: needs containerlab CLI + Docker; skip in pure hermetic runs",
+]

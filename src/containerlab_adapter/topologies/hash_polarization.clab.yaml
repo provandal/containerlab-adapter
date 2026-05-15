@@ -1,0 +1,46 @@
+# hash-polarization scenario — containerlab spec.
+#
+# Placeholder topology. Final dimensions and exact link/port mapping
+# pending Stage A Scout — confirming Cumulus VX boot time, swp-naming
+# conventions, and resource use under a multi-leaf deployment.
+#
+# Target shape: 2 leaves × 1 spine × 2 hosts per leaf to start (smallest
+# topology that exhibits ECMP), expanding to 4 leaves × 2 spines × 8
+# hosts per leaf once the smoke test confirms the path.
+#
+# References:
+#   https://containerlab.dev/manual/kinds/cvx/
+#   https://docs.nvidia.com/networking-ethernet-software/cumulus-linux/
+
+name: hash-polarization
+
+topology:
+  defaults:
+    kind: cvx
+    image: networkop/cx:5.0
+  nodes:
+    spine1:
+      kind: cvx
+    leaf1:
+      kind: cvx
+    leaf2:
+      kind: cvx
+    host1:
+      kind: linux
+      image: ghcr.io/srl-labs/network-multitool
+    host2:
+      kind: linux
+      image: ghcr.io/srl-labs/network-multitool
+    host3:
+      kind: linux
+      image: ghcr.io/srl-labs/network-multitool
+    host4:
+      kind: linux
+      image: ghcr.io/srl-labs/network-multitool
+  links:
+    - endpoints: ["spine1:swp1", "leaf1:swp1"]
+    - endpoints: ["spine1:swp2", "leaf2:swp1"]
+    - endpoints: ["leaf1:swp2", "host1:eth1"]
+    - endpoints: ["leaf1:swp3", "host2:eth1"]
+    - endpoints: ["leaf2:swp2", "host3:eth1"]
+    - endpoints: ["leaf2:swp3", "host4:eth1"]
