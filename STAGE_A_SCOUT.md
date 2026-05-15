@@ -1,41 +1,61 @@
-# Stage A Scout — containerlab + Cumulus VX
+# Stage A Scout — containerlab + SONiC
 
 Updated 2026-05-15.
 
 ## What we know
 
-**containerlab** is an open-source CLI tool (BSD-3-Clause, originally Nokia SR Linux team, now community-maintained) that declaratively deploys multi-node network topologies as Docker containers. Native support for Cumulus VX, SONiC, FRR, Nokia SR Linux, Arista cEOS, Juniper cRPD, and others.
+**containerlab** is an open-source CLI (BSD-3-Clause, srl-labs / Nokia SR Linux team) that declaratively deploys multi-node network topologies as Docker containers. First-class support for `sonic-vs` (containerized SONiC).
 
-**Cumulus VX** is NVIDIA's free Cumulus Linux virtual appliance (subject to the [Cumulus VX EULA](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-vx/), free for non-production use). It runs Cumulus Linux unmodified — the same NOS image enterprises run in production on Mellanox Spectrum hardware. Telemetry surface: `nv show ... --json`, `cl-counters`, `ethtool -S`, `nv show qos buffer-pool --json`.
+**SONiC** is the open-source NOS run in production by Azure, Meta, Alibaba, and many AI fabric operators. The Container distribution (`sonic-vs`) is a stripped-down image of the full SONiC switch stack runnable as a Linux container — bgp, swss, syncd, and the standard `show ...` CLI all present.
 
-**Local environment confirmed**: Docker Desktop 28.4 + WSL2 2.6.1 are installed on this workspace machine. containerlab itself is **not yet installed** — that's a WSL2-side install (`bash -c "$(curl -sL https://get.containerlab.dev)"`).
+**Important environment note**: NVIDIA discontinued Cumulus VX in 2024. The containerlab `cvx` kind still works against legacy `networkop/cx` community-maintained images but is end-of-life. SONiC is the actively-maintained alternative this adapter targets.
 
-## What we expect
-
-The substrate-substitution claim should hold cleanly: the Driver wraps `containerlab deploy/destroy/inspect` plus SSH-into-each-node for telemetry, then maps the responses onto the same MCP envelope shape Doppelgänger uses. The agent should see no difference in tool-call interface.
+**Local environment confirmed (workspace machine)**: Docker Desktop 28.4 + WSL2 2.6.1, containerlab installed inside WSL2, RAM 31.2 GB. SONiC image not yet loaded.
 
 ## What this Scout will confirm
 
-1. **containerlab install lands clean** on WSL2 + Docker Desktop integration.
-2. **Cumulus VX image pulls** (`docker pull networkop/cx:5.0`, ~700 MB).
-3. **A minimum 2-leaf 1-spine 4-host topology deploys** from a `.clab.yaml` spec in seconds.
-4. **SSH into a leaf works** (containerlab auto-distributes keys per-topology; default user `cumulus`).
-5. **`nv show interface --json`** returns parseable output. Shape captured to `scout-outputs/` for parser design.
-6. **`cl-counters`** and **`ethtool -S`** return parseable output.
-7. **Teardown is clean** (`containerlab destroy --cleanup` removes containers + auto-generated directories).
+1. **SONiC VS image loaded into Docker** via `docker load -i docker-sonic-vs.gz`. Source: SONiC's Azure build pipeline (community master or a release branch artifact). Image lands as something like `docker-sonic-vs:latest`.
+2. **Minimum 2-leaf 1-spine 4-host topology deploys** from `src/containerlab_adapter/topologies/hash_polarization.clab.yaml`.
+3. **SSH into a SONiC node works**. Default creds for community sonic-vs are `admin / YourPaSsWoRd` (case-sensitive); container shell access is also available via `docker exec`.
+4. **Telemetry commands return parseable output**:
+   - `show interfaces counters` (basic)
+   - `show interfaces counters detailed Ethernet0` (per-port detail)
+   - `show queue counters Ethernet0` (per-queue)
+   - `show pfc counters` (PFC pause counters)
+   - `show priority-group watermark shared`, `... headroom` (PG watermarks)
+   - `show priority-group persistent-watermark`
+5. **gNMI as a JSON path** if the `show` commands prove text-only or fragile. SONiC supports gNMI for structured telemetry.
+6. **Teardown is clean** (`containerlab destroy --cleanup`).
 
-Output saved to `scout-outputs/` (gitignored). Parser implementations in `src/containerlab_adapter/driver/` get filled in against the captured shapes.
+Outputs saved to `scout-outputs/` (gitignored) for parser design in `src/containerlab_adapter/driver/`.
+
+## SONiC image-load procedure
+
+The `sonic-vs` containerlab kind expects an image already in the local Docker store; it does NOT pull from a public registry. Two paths:
+
+**Option A — community master build (recommended for initial Scout):**
+1. Visit [SONiC's Azure pipeline](https://sonic-build.azurewebsites.net/ui/sonic/pipelines).
+2. Navigate to the `vs` pipeline → latest successful master build → Artifacts.
+3. Download `target/docker-sonic-vs.gz`.
+4. `docker load -i docker-sonic-vs.gz`.
+5. `docker images | grep sonic` to confirm the image landed; note its tag.
+6. Update `hash_polarization.clab.yaml` and `scripts/check_setup.py` to reference the actual loaded image name.
+
+**Option B — release branch build:** Same procedure, different pipeline. Pin to a release branch (e.g., `202311`, `202405`) for stability; master for the latest features.
+
+**Option C — vrnetlab + sonic-vm:** Use the VM kind instead of the container kind. Heavier (full QEMU), more realistic, slower spin-up. Defer unless `sonic-vs` proves insufficient.
 
 ## Predicted blockers
 
-Lower risk than AIR Scout — no external auth, no enrollment gates. Plausible friction points:
+Lower-risk than AIR Scout — no external auth, no enrollment gates. Plausible friction:
 
-- **WSL2 + Docker Desktop integration glitches.** Generally well-trodden, but containerlab needs to talk to Docker; if Docker Desktop's WSL2 integration isn't enabled, this stalls until it is.
-- **Cumulus VX image pull rate-limiting** if the Docker Hub anonymous pull limit is exceeded. Unlikely for one image but possible.
-- **Resource pressure on small topologies.** A 2-leaf 1-spine 4-host Cumulus VX topo uses ~3.5 GB RAM (each Cumulus VX container ~500 MB; hosts ~50 MB each). Should fit comfortably; a 4-leaf 2-spine 8-host topology would be ~8 GB. Within laptop limits.
+- **Azure pipeline artifact access** may require navigating their UI; one-time download (~600 MB) so not a recurring cost.
+- **WSL2 + Docker Desktop integration**. Well-trodden, but containerlab needs to talk to Docker; if WSL2 integration isn't enabled in Docker Desktop's settings, deploy stalls.
+- **Resource pressure**. 2-leaf 1-spine 4-host sonic-vs topology: estimate ~3 GB RAM (each SONiC container ~500 MB; hosts ~50 MB each). 4-leaf 2-spine 8-host: ~7 GB. Within the 31.2 GB the workspace machine has.
+- **Cold-start BGP convergence**. SONiC's default config may need BGP up before per-port counters are meaningful for an ECMP polarization scenario. Wait-for-ready signal needs empirical confirmation.
 
-## What was scaffolded before install
+## What was scaffolded before the SONiC image is in hand
 
-Driver module shape, Adapter shell stub, hermetic tests using `subprocess.run` mocks. The `ContainerlabClient` class implements `deploy/destroy/inspect` concretely since they're transparent CLI wrappers; the higher-level tool methods (`get_topology`, `get_fabric_counters`, etc.) raise `NotImplementedError("pending Stage A Scout observations")` until live Cumulus VX telemetry shapes the parsers.
+Driver module shape, Adapter shell stub, hermetic tests using `subprocess.run` mocks. `ContainerlabClient` deploy/destroy/inspect are concretely implemented (subprocess wrappers, honest error handling). Higher-level tool methods raise `NotImplementedError("pending Stage A Scout observations")` until live SONiC telemetry shapes the parsers.
 
-Topology specs live under `src/containerlab_adapter/topologies/`. First example: `hash_polarization.clab.yaml` (placeholder for the MVP scenario).
+Topology specs under `src/containerlab_adapter/topologies/`. First example: `hash_polarization.clab.yaml` (placeholder dimensions, `sonic-vs` kind, image name to be updated post-load).

@@ -1,4 +1,4 @@
-"""hash-polarization scenario for containerlab + Cumulus VX.
+"""hash-polarization scenario for containerlab + SONiC.
 
 MVP scenario for the substrate-substitution validation work. Pairs
 with the Doppelgänger hash-polarization scenario; the agent's
@@ -11,8 +11,10 @@ Topology spec: :mod:`containerlab_adapter.topologies.hash_polarization`
 Scenario shape:
 
 - Topology: 4 leaves × 2 spines × multiple hosts per leaf (final
-  dimensions confirmed by Stage A Scout — needs to fit in laptop RAM).
-- Initial config: factory Cumulus VX, standard ECMP, no QoS tuning.
+  dimensions confirmed by Stage A Scout — needs to fit in laptop RAM;
+  SONiC VS containers are ~500 MB each).
+- Initial config: factory SONiC, standard ECMP, no QoS tuning, BGP
+  for leaf-spine adjacency.
 - Traffic pattern: many parallel iperf flows with constrained
   source-port range to induce ECMP hash collision onto a subset of
   spine uplinks.

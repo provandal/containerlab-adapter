@@ -1,47 +1,45 @@
 # containerlab-adapter
 
-HarnessIT's Substrate Adapter for **containerlab + Cumulus VX**. Wraps the `containerlab` CLI plus SSH access to Cumulus VX nodes and exposes the same MCP tool contract Doppelgänger does, so HarnessIT can run unchanged against real Cumulus Linux running locally in containers.
+HarnessIT's Substrate Adapter for **containerlab + SONiC**. Wraps the `containerlab` CLI plus SSH access to SONiC virtual switches and exposes the same MCP tool contract Doppelgänger does, so HarnessIT can run unchanged against real SONiC running locally in containers.
 
-**Status: Stage A Scout.** Skeleton scaffolded; containerlab smoke-test pending (`STAGE_A_SCOUT.md`). Driver subprocess wrappers (`deploy`/`destroy`/`inspect`) are implemented concretely — they're honest CLI calls, not pending observations. Higher-level tool methods (`get_topology`, `get_fabric_counters`, etc.) remain stubs until Cumulus VX telemetry shapes are captured.
+**Status: Stage A Scout.** Skeleton scaffolded; SONiC image-load + smoke test pending (`STAGE_A_SCOUT.md`). Driver subprocess wrappers (`deploy`/`destroy`/`inspect`) are implemented concretely — they're honest CLI calls. Higher-level tool methods (`get_topology`, `get_fabric_counters`, etc.) remain stubs until SONiC telemetry shapes are captured.
 
 ## How this fits
 
 - **HarnessIT** (`provandal/harnessit`) — the agentic harness. Consumes Substrate Adapters via MCP.
 - **Doppelgänger** (`provandal/doppelganger`) — the first Substrate Adapter. Wraps NS-3 for simulated leaf-spine fabrics.
 - **air-adapter** (`provandal/air-adapter`) — planned NVIDIA DSX Air adapter. Currently blocked on NGC AIR service enrollment.
-- **containerlab-adapter** (this repo) — the immediate second Substrate Adapter. Wraps containerlab + Cumulus VX. Local, open-source, no external auth.
+- **containerlab-adapter** (this repo) — the immediate second Substrate Adapter. Wraps containerlab + SONiC. Local, open-source, no external auth.
 
 Per HarnessIT Architecture v0.6 §4.1, Substrate Adapters are plural by design. This repo unblocks the substrate-substitution validation work that motivated Stage 13 (originally targeted at AIR) without depending on NVIDIA's enrollment process.
 
-## Why containerlab over AIR
+## Why SONiC
 
-- **No external auth.** containerlab is open-source and runs locally; no NGC keys, no service-scope dependencies.
-- **Same Cumulus behavior.** Cumulus VX is the same Cumulus Linux image AIR runs. Same `nv show --json`, same `cl-counters`, same `ethtool -S`.
-- **Faster iteration.** Local containers spin up in seconds vs. AIR's minutes.
-- **Reproducible.** Anyone can install containerlab + Docker and replay our topologies. The published-series payoff is stronger.
+SONiC is the open-source NOS (Linux Foundation project, originally Microsoft) that runs in production on most large AI/cloud fabrics — Azure, Meta, Alibaba, and many AI-training shops standardize on it. NVIDIA discontinued Cumulus VX in 2024 with the message "use AIR instead"; SONiC is the obvious open alternative and is arguably *more* relevant to HarnessIT's AI-fabric-operations target audience than Cumulus would have been.
 
-What containerlab does NOT give us that AIR would have: NVIDIA-vendor-blessed narrative, hosted convenience, fleet management. None of these are load-bearing for skill validation.
+The architectural claim — that the harness's investigation logic and skill design are substrate-agnostic — is validated as cleanly by SONiC as by Cumulus or AIR. The MCP contract doesn't care which NOS the substrate runs.
 
-## Setup (WSL2 + Docker + containerlab)
-
-On Windows, the Python harness runs in Git Bash but containerlab itself must run inside WSL2 (Linux-first tool). Docker Desktop with WSL2 integration provides the container runtime.
+## Setup (WSL2 + Docker + containerlab + SONiC image)
 
 ```bash
 # Inside WSL2:
 bash -c "$(curl -sL https://get.containerlab.dev)"
 containerlab version  # confirm
 
-# Pull Cumulus VX image (one-time, ~700 MB)
-docker pull networkop/cx:5.0
+# Load SONiC VS image. The Container kind (sonic-vs) expects an image
+# pre-loaded via `docker load`; the image comes from SONiC's Azure
+# build pipeline (community master or one of the release branches).
+# Procedure documented in STAGE_A_SCOUT.md.
+docker images | grep sonic   # confirm after loading
 ```
 
-This adapter's Python code itself can run in either Windows-side or WSL2-side Python; the `ContainerlabClient` shells out to `containerlab` which must resolve in PATH. The simplest setup is to run everything inside WSL2.
+This adapter's Python code runs in either Windows-side or WSL2-side Python; `ContainerlabClient` shells out to `containerlab` which must resolve in PATH. Simplest setup: run everything inside WSL2.
 
 ```bash
 python -m venv .venv
 .venv/bin/activate   # or .venv/Scripts/activate on Windows-side
 pip install -e ".[dev]"
-pytest                # 13+ hermetic tests should pass
+pytest                # 21 hermetic tests should pass
 ```
 
 ## Layout
@@ -58,4 +56,4 @@ tests/           # hermetic tests (subprocess mocked)
 
 ## License
 
-Apache-2.0. containerlab is BSD-3-Clause; Cumulus VX is governed by NVIDIA's [Cumulus VX EULA](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-vx/) (free for non-production use). This adapter's code carries no inherited license from either.
+Apache-2.0. containerlab is BSD-3-Clause; SONiC is Apache-2.0 (Linux Foundation). This adapter's code carries no inherited license from either; the per-substrate license boundary is at runtime per Doppelgänger v0.3 §9.5.

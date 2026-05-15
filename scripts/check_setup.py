@@ -22,7 +22,7 @@ import sys
 from typing import Tuple
 
 
-CUMULUS_VX_IMAGE = "networkop/cx:5.0"
+SONIC_VS_IMAGE = "docker-sonic-vs:latest"
 MIN_RAM_GB_FOR_SMOKE = 4  # 2-leaf 1-spine 4-host fits comfortably
 
 
@@ -61,12 +61,17 @@ def main() -> int:
             '    bash -c "$(curl -sL https://get.containerlab.dev)"'
         )
 
-    # 3. Cumulus VX image
-    ok, msg = probe("docker images", ["docker", "image", "inspect", CUMULUS_VX_IMAGE])
+    # 3. SONiC VS image — must be loaded from Azure pipeline artifact
+    # (this kind doesn't pull from a public registry).
+    ok, msg = probe("docker images", ["docker", "image", "inspect", SONIC_VS_IMAGE])
     if ok:
-        print(f"[OK] Cumulus VX image present: {CUMULUS_VX_IMAGE}")
+        print(f"[OK] SONiC VS image present: {SONIC_VS_IMAGE}")
     else:
-        print(f"[WARN] {CUMULUS_VX_IMAGE} not pulled yet — run: docker pull {CUMULUS_VX_IMAGE}")
+        print(
+            f"[WARN] {SONIC_VS_IMAGE} not loaded yet — see STAGE_A_SCOUT.md\n"
+            "       for the Azure-pipeline download + `docker load -i ...` procedure.\n"
+            "       Image tag in YAML may need adjusting to match your local store."
+        )
 
     # 4. RAM check
     try:

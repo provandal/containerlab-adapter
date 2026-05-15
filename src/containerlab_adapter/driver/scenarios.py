@@ -10,8 +10,9 @@ Two MCP tools per Doppelgänger v0.3 §2.2:
 
 The Doppelgänger semantic ("run a simulation to completion") shifts
 for containerlab in the same way it shifts for AIR: containers run
-in real-time, so a "run" maps onto deploy → configure → traffic →
-snapshot → optionally tear down.
+in real-time, so a "run" maps onto deploy → wait-for-BGP-converge →
+apply scenario config → run traffic → snapshot telemetry →
+optionally tear down.
 """
 
 from __future__ import annotations
@@ -42,9 +43,10 @@ def run_scenario(
 
     Pending Stage A Scout. The deploy → configure → traffic → snapshot
     → teardown sequence needs real timings + telemetry shapes to pin.
-    Cumulus VX initial config (BGP convergence, port admin-up) takes
-    seconds-to-minutes; the right "wait for ready" signal needs
-    empirical confirmation.
+    SONiC initial config (BGP convergence, port admin-up) takes
+    tens-of-seconds to minutes; the right "wait for ready" signal
+    needs empirical confirmation (candidates: ``show ip bgp summary``
+    showing all neighbors Established, or per-port operational up).
     """
     raise NotImplementedError(
         "run_scenario pending Stage A Scout + scenario authoring decisions"

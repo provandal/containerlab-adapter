@@ -1,30 +1,36 @@
-# hash-polarization scenario — containerlab spec.
+# hash-polarization scenario — containerlab + SONiC spec.
 #
 # Placeholder topology. Final dimensions and exact link/port mapping
-# pending Stage A Scout — confirming Cumulus VX boot time, swp-naming
-# conventions, and resource use under a multi-leaf deployment.
+# pending Stage A Scout — confirming SONiC VS boot time, Ethernet-port
+# naming conventions, and resource use under a multi-leaf deployment.
 #
-# Target shape: 2 leaves × 1 spine × 2 hosts per leaf to start (smallest
-# topology that exhibits ECMP), expanding to 4 leaves × 2 spines × 8
-# hosts per leaf once the smoke test confirms the path.
+# Target shape: 2 leaves × 1 spine × 4 hosts to start (smallest topology
+# that exhibits ECMP), expanding to 4 leaves × 2 spines × 8 hosts per leaf
+# once smoke test confirms the path.
+#
+# IMAGE: the `sonic-vs` kind expects a pre-loaded image. The default
+# below assumes `docker load -i docker-sonic-vs.gz` produces an image
+# tagged `docker-sonic-vs:latest`. Override per environment by setting
+# the `image:` field to the actual tag in your local Docker store.
 #
 # References:
-#   https://containerlab.dev/manual/kinds/cvx/
-#   https://docs.nvidia.com/networking-ethernet-software/cumulus-linux/
+#   https://containerlab.dev/manual/kinds/sonic-vs/
+#   https://sonic-build.azurewebsites.net/ui/sonic/pipelines
+#   https://github.com/sonic-net/SONiC
 
 name: hash-polarization
 
 topology:
   defaults:
-    kind: cvx
-    image: networkop/cx:5.0
+    kind: sonic-vs
+    image: docker-sonic-vs:latest
   nodes:
     spine1:
-      kind: cvx
+      kind: sonic-vs
     leaf1:
-      kind: cvx
+      kind: sonic-vs
     leaf2:
-      kind: cvx
+      kind: sonic-vs
     host1:
       kind: linux
       image: ghcr.io/srl-labs/network-multitool
@@ -38,9 +44,13 @@ topology:
       kind: linux
       image: ghcr.io/srl-labs/network-multitool
   links:
-    - endpoints: ["spine1:swp1", "leaf1:swp1"]
-    - endpoints: ["spine1:swp2", "leaf2:swp1"]
-    - endpoints: ["leaf1:swp2", "host1:eth1"]
-    - endpoints: ["leaf1:swp3", "host2:eth1"]
-    - endpoints: ["leaf2:swp2", "host3:eth1"]
-    - endpoints: ["leaf2:swp3", "host4:eth1"]
+    # SONiC `eth1` maps to data port `Ethernet0`, `eth2` → `Ethernet4`,
+    # etc. (the standard SONiC port enumeration follows 4-lane
+    # boundaries). Containerlab's link spec uses the container-side
+    # `ethN` names.
+    - endpoints: ["spine1:eth1", "leaf1:eth1"]
+    - endpoints: ["spine1:eth2", "leaf2:eth1"]
+    - endpoints: ["leaf1:eth2", "host1:eth1"]
+    - endpoints: ["leaf1:eth3", "host2:eth1"]
+    - endpoints: ["leaf2:eth2", "host3:eth1"]
+    - endpoints: ["leaf2:eth3", "host4:eth1"]
