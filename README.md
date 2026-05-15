@@ -33,14 +33,27 @@ containerlab version  # confirm
 docker images | grep sonic   # confirm after loading
 ```
 
-This adapter's Python code runs in either Windows-side or WSL2-side Python; `ContainerlabClient` shells out to `containerlab` which must resolve in PATH. Simplest setup: run everything inside WSL2.
+This adapter's Python code runs in either Windows-side or WSL2-side Python; `ContainerlabClient` shells out to `containerlab` which must resolve in PATH. The smoke and scout scripts work end-to-end only from inside WSL2 (containerlab is Linux-first).
+
+When the repo lives on a Windows host with WSL2 mounted at `/mnt/c/...`, Windows and Linux venvs cannot coexist in the same `.venv/` directory (different layouts). Use separate venv names:
 
 ```bash
+# Windows-side (Git Bash / PowerShell) — for hermetic test runs:
 python -m venv .venv
-.venv/bin/activate   # or .venv/Scripts/activate on Windows-side
+.venv/Scripts/activate
 pip install -e ".[dev]"
-pytest                # 21 hermetic tests should pass
+pytest
+
+# WSL2-side — for smoke/scout/MVP work that hits containerlab:
+python3 -m venv .venv-wsl
+source .venv-wsl/bin/activate
+pip install -e ".[dev]"
+pytest                       # same 21 tests should pass
+python scripts/check_setup.py
+python scripts/smoke_topology.py
 ```
+
+Both `.venv/` and `.venv-*/` are gitignored.
 
 ## Layout
 
