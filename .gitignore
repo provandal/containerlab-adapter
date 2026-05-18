@@ -23,6 +23,14 @@ venv/
 clab-*/
 *.clab.log
 
+# Terraform state, lock files, and local backends
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfvars
+!terraform/*.tfvars.example
+
 # Scout outputs (raw API/SSH dumps — workspace-private)
 scout-outputs/
 
