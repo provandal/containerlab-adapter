@@ -46,7 +46,7 @@ def main() -> int:
         deploy_out = client.deploy()
     except ContainerlabError as exc:
         print(f"[deploy] FAIL: {exc}")
-        print(f"  stderr: {exc.stderr[:400]}")
+        print(f"  full stderr:\n{exc.stderr}")
         return 3
     deploy_path = OUTPUT_DIR / "deploy.json"
     deploy_path.write_text(json.dumps(deploy_out, indent=2), encoding="utf-8")
