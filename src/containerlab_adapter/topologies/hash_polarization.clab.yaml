@@ -31,9 +31,16 @@ mgmt:
   ipv6-subnet: 3fff:172:100:100::/64
 
 topology:
-  defaults:
-    kind: sonic-vs
-    image: docker-sonic-vs:latest
+  # Image: netreplica/docker-sonic-vs is the community SONiC build
+  # tailored for containerlab. The Azure-pipeline docker-sonic-vs
+  # image required multiple workarounds (cmd override to run
+  # supervisord, setsid -w to detach from the controlling PTY,
+  # supervisord port-conflict races on parallel deploy of >1 node);
+  # netreplica's build ships with supervisord configured to play
+  # nicely under containerlab's sonic-vs kind defaults.
+  kinds:
+    sonic-vs:
+      image: netreplica/docker-sonic-vs:latest
   nodes:
     spine1:
       kind: sonic-vs
