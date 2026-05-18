@@ -20,6 +20,16 @@
 
 name: hash-polarization
 
+# Explicit management network to avoid colliding with other networks
+# already in this Docker host (containerlab's default 172.20.20.0/24
+# collided with a sonic-vs_* network from prior work). 172.100.100.0/24
+# is well outside the conventional Docker/kind/containerlab default
+# ranges and unlikely to be in use.
+mgmt:
+  network: clab-hash-polarization
+  ipv4-subnet: 172.100.100.0/24
+  ipv6-subnet: 3fff:172:100:100::/64
+
 topology:
   defaults:
     kind: sonic-vs
