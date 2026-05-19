@@ -23,6 +23,13 @@ systemctl enable --now docker
 if ! command -v containerlab >/dev/null 2>&1; then
   bash -c "$(curl -sL https://get.containerlab.dev)"
 fi
+# Containerlab >= ~0.50 gates every command on clab_admins membership.
+# The install script creates the group but doesn't add anyone to it; a
+# missing-membership deploy fails with a coloured ASCII banner that
+# doesn't surface through Python's ContainerlabError unless exc.stderr
+# is printed. Add ubuntu eagerly.
+groupadd -f clab_admins
+usermod -aG clab_admins ubuntu
 
 # 4. Pull SONiC image (community netreplica build)
 if ! docker image inspect netreplica/docker-sonic-vs:latest >/dev/null 2>&1; then

@@ -124,6 +124,17 @@ def main() -> int:
         else:
             print(f"\nALL {len(assertions)} CHECKS PASSED", flush=True)
 
+    except ContainerlabError as exc:
+        print(f"SMOKE FAILED: {type(exc).__name__}: {exc}", flush=True)
+        # ContainerlabError carries the subprocess stderr; surface it
+        # so deploy/destroy failures are diagnosable in one round-trip
+        # rather than requiring a manual containerlab invocation.
+        if exc.stderr:
+            print("--- containerlab stderr ---", flush=True)
+            print(exc.stderr, flush=True)
+            print("---", flush=True)
+        traceback.print_exc()
+        exit_code = 2
     except Exception as exc:
         print(f"SMOKE FAILED: {type(exc).__name__}: {exc}", flush=True)
         traceback.print_exc()
