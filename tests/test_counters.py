@@ -21,6 +21,8 @@ import pytest
 from containerlab_adapter.driver.client import ContainerlabClient, ContainerlabError
 from containerlab_adapter.driver.counters import (
     get_fabric_counters,
+    get_host_counters,
+    parse_ethtool_S,
     parse_interfaces_counters,
     parse_pfc_counters,
     parse_pg_watermark_headroom,
@@ -359,3 +361,119 @@ def test_exec_on_node_raises_on_missing_docker_binary(fake_topology: Path):
     with patch("subprocess.run", side_effect=FileNotFoundError("docker")):
         with pytest.raises(ContainerlabError, match="docker binary not found"):
             client.exec_on_node("clab-test-node1", "echo hello")
+
+
+# ============================================================
+# parse_ethtool_S
+# ============================================================
+
+class TestParseEthtoolS:
+    def test_scout_capture_yields_expected_fields(self):
+        """The captured veth ethtool output has peer_ifindex + 20
+        zero-valued counters. All fields parse cleanly."""
+        text = (REPO_ROOT / "scout-outputs" / "host1-ethtool_S_eth1.txt").read_text(encoding="utf-8")
+        stats = parse_ethtool_S(text)
+        assert len(stats) == 21
+        assert stats["peer_ifindex"] == 69
+        assert stats["rx_queue_0_drops"] == 0  # the load-bearing field for §4.5
+        assert stats["rx_queue_0_xdp_packets"] == 0
+        assert stats["tx_queue_0_xdp_xmit"] == 0
+
+    def test_empty_string_yields_empty_dict(self):
+        assert parse_ethtool_S("") == {}
+
+    def test_header_only_yields_empty_dict(self):
+        """Some kernels emit only the 'NIC statistics:' header with no
+        counters. Surface that as empty (not synthesized zeros)."""
+        assert parse_ethtool_S("NIC statistics:\n") == {}
+
+    def test_non_integer_value_round_trips_as_string(self):
+        """ethtool emits non-numeric stats on some drivers (e.g.
+        operstate names); the parser preserves them as strings."""
+        text = "NIC statistics:\n     link_state: up\n     speed_mbps: 10000\n"
+        stats = parse_ethtool_S(text)
+        assert stats["link_state"] == "up"
+        assert stats["speed_mbps"] == 10000
+
+
+# ============================================================
+# get_host_counters orchestrator
+# ============================================================
+
+ETHTOOL_FIXTURE = (REPO_ROOT / "scout-outputs" / "host1-ethtool_S_eth1.txt").read_text(encoding="utf-8")
+HASH_POL_HOSTS = ("host1", "host2", "host3", "host4")
+
+
+@pytest.fixture
+def patched_hosts(real_client: ContainerlabClient, inspect_stdout: str):
+    """Hermetic harness for get_host_counters: inspect returns the
+    scout JSON; exec_on_node returns the captured ethtool fixture for
+    every host (real shape, just the same per-host)."""
+    def exec_side_effect(container_name: str, cmd: str) -> str:
+        assert cmd == "ethtool -S eth1", f"unexpected cmd: {cmd!r}"
+        prefix = "clab-hash-polarization-"
+        assert container_name.startswith(prefix)
+        return ETHTOOL_FIXTURE
+
+    with patch.object(
+        real_client, "inspect",
+        return_value=json.loads(inspect_stdout),
+    ), patch.object(
+        real_client, "exec_on_node",
+        side_effect=exec_side_effect,
+    ) as exec_mock:
+        env = get_host_counters(real_client)
+        yield env, exec_mock
+
+
+def test_host_envelope_has_required_fields(patched_hosts):
+    env, _ = patched_hosts
+    for key in ("data", "observed_at_ns", "source", "confidence", "staleness_class"):
+        assert key in env
+
+
+def test_host_records_only_for_hosts(patched_hosts):
+    """Switches are excluded — that's get_fabric_counters' job."""
+    env, _ = patched_hosts
+    hosts_seen = {r["host"] for r in env["data"]}
+    assert hosts_seen == set(HASH_POL_HOSTS)
+
+
+def test_host_records_count_matches_topology(patched_hosts):
+    """hash-polarization has 4 hosts; one record per host."""
+    env, _ = patched_hosts
+    assert len(env["data"]) == 4
+
+
+def test_host_each_record_has_stats_dict(patched_hosts):
+    env, _ = patched_hosts
+    for record in env["data"]:
+        assert "host" in record
+        assert "interface" in record and record["interface"] == "eth1"
+        assert isinstance(record["stats"], dict)
+        assert "rx_queue_0_drops" in record["stats"]
+
+
+def test_host_lab_name_in_source_not_data(patched_hosts):
+    """§6.5: scenario name only in source."""
+    env, _ = patched_hosts
+    assert "hash-polarization" in env["source"]
+    assert "hash-polarization" not in json.dumps(env["data"])
+
+
+def test_host_short_names_no_clab_prefix(patched_hosts):
+    env, _ = patched_hosts
+    for record in env["data"]:
+        assert not record["host"].startswith("clab-")
+
+
+def test_host_exec_called_once_per_host(patched_hosts):
+    """Four hosts → four ethtool calls. No switches queried."""
+    _, exec_mock = patched_hosts
+    assert exec_mock.call_count == 4
+
+
+def test_host_no_inspect_raises(real_client: ContainerlabClient):
+    with patch.object(real_client, "inspect", return_value={}):
+        with pytest.raises(ContainerlabError, match="no deployed labs"):
+            get_host_counters(real_client)

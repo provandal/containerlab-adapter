@@ -1,8 +1,9 @@
-"""Stage B step 3 live smoke — Driver end-to-end against AWS substrate.
+"""Stage B steps 3+4 live smoke — Driver end-to-end against AWS substrate.
 
 Deploys hash-polarization via run_scenario, snapshots fabric counters
-via get_fabric_counters, tears down. Validates that the parsers built
-against scout-captured text correctly handle truly-live SONiC output.
+via get_fabric_counters AND host counters via get_host_counters, tears
+down. Validates that the parsers built against scout-captured text
+correctly handle truly-live SONiC + ethtool output.
 
 Run from the EC2 host as the ubuntu user, with the .venv active::
 
@@ -23,13 +24,17 @@ import traceback
 from pathlib import Path
 
 from containerlab_adapter.driver.client import ContainerlabClient, ContainerlabError
-from containerlab_adapter.driver.counters import get_fabric_counters
+from containerlab_adapter.driver.counters import (
+    get_fabric_counters,
+    get_host_counters,
+)
 from containerlab_adapter.driver.scenarios import run_scenario
 from containerlab_adapter.scenarios import hash_polarization
 
 
 SCENARIO = "hash-polarization"
 EXPECTED_SWITCHES = {"leaf1", "leaf2", "spine1"}
+EXPECTED_HOSTS = {"host1", "host2", "host3", "host4"}
 EXPECTED_HOST_PORT_TOTAL = 8  # spine1 (2) + leaf1 (3) + leaf2 (3)
 
 
@@ -116,6 +121,40 @@ def main() -> int:
         banner("first record (sample)")
         if records:
             print(json.dumps(records[0], indent=2), flush=True)
+
+        banner("get_host_counters")
+        t0 = time.time()
+        host_env = get_host_counters(client)
+        print(f"get_host_counters wall-clock: {time.time() - t0:.1f}s", flush=True)
+        host_records = host_env["data"]
+        print(f"host record count: {len(host_records)}", flush=True)
+        print(f"source: {host_env['source']}", flush=True)
+
+        hosts_seen = {r["host"] for r in host_records}
+        check(
+            "host set == host1..host4",
+            hosts_seen == EXPECTED_HOSTS,
+            f"got {sorted(hosts_seen)}",
+        )
+        check(
+            "every host carries rx_queue_0_drops",
+            all("rx_queue_0_drops" in r["stats"] for r in host_records),
+        )
+        check(
+            f"{SCENARIO!r} absent from host_counters data payload",
+            SCENARIO not in json.dumps(host_records),
+        )
+        check(
+            f"{SCENARIO!r} present in host_counters source",
+            SCENARIO in host_env["source"],
+        )
+
+        banner("first host record (sample)")
+        if host_records:
+            sample = host_records[0].copy()
+            # Stats can be ~20 fields; trim to first 5 for readability.
+            sample["stats"] = dict(list(sample["stats"].items())[:5]) | {"...": "(truncated)"}
+            print(json.dumps(sample, indent=2), flush=True)
 
         failed = [name for name, ok in assertions if not ok]
         if failed:

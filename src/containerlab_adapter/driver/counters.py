@@ -330,12 +330,82 @@ def get_fabric_counters(client: ContainerlabClient) -> dict[str, Any]:
     )
 
 
-def get_host_counters(client: ContainerlabClient) -> dict[str, Any]:
-    """Host-side ingress drop / PHY counters per Doppelgänger v0.3 §4.5.
+_ETHTOOL_HEADER = re.compile(r"^NIC statistics:\s*$")
+_ETHTOOL_STAT = re.compile(r"^\s*(\S+):\s*(.+?)\s*$")
+_HOST_DATA_INTERFACE = "eth1"
 
-    Pending: Stage A did not capture ``ethtool -S`` from host
-    containers; field shape must be observed live before parsing.
+
+def parse_ethtool_S(text: str) -> dict[str, Any]:
+    """Parse ``ethtool -S <iface>`` into a flat stat->value dict.
+
+    Lines look like ``     rx_queue_0_drops: 0`` (six-space indent +
+    key + colon + value). The ``NIC statistics:`` header is stripped.
+    Integer values parse to int; anything else round-trips as string.
+    Returns an empty dict if no stats follow the header — veth on some
+    kernels emits no counters at all, and the agent should see that
+    honestly rather than receive synthesized zeros.
+
+    The field we most care about for fabric diagnosis is
+    ``rx_queue_0_drops`` — host-side ingress drop, which is invisible
+    to switch egress counters (Doppelgänger v0.3 §4.5).
     """
-    raise NotImplementedError(
-        "get_host_counters pending live ethtool -S capture from host containers"
+    stats: dict[str, Any] = {}
+    for line in text.splitlines():
+        if _ETHTOOL_HEADER.match(line):
+            continue
+        if not line.strip():
+            continue
+        match = _ETHTOOL_STAT.match(line)
+        if not match:
+            continue
+        key, raw = match.group(1), match.group(2)
+        stats[key] = _parse_value(raw)
+    return stats
+
+
+def get_host_counters(client: ContainerlabClient) -> dict[str, Any]:
+    """Snapshot per-host ``ethtool -S`` stats on the data interface.
+
+    Iterates every node containerlab reports as a host (role=host);
+    runs ``ethtool -S eth1`` on each via ``client.exec_on_node`` and
+    parses the output. The data interface is hardcoded to ``eth1``
+    for v0.1 — that's the convention our topology YAMLs follow (eth0
+    is containerlab's mgmt network, eth1+ are data-plane links).
+    Multi-interface hosts are a v0.2 extension.
+
+    Raises :class:`ContainerlabError` if no lab is deployed.
+    """
+    inspect_data = client.inspect()
+    if not inspect_data:
+        raise ContainerlabError(
+            "containerlab inspect returned no deployed labs — "
+            "deploy a topology before calling get_host_counters",
+            cmd=["containerlab", "inspect"],
+            returncode=0,
+        )
+
+    lab_name, lab_records = next(iter(inspect_data.items()))
+
+    records: list[dict[str, Any]] = []
+    for raw in lab_records:
+        container_name = raw.get("name", "")
+        short_name = strip_lab_prefix(container_name, lab_name)
+        role = classify_role(short_name, raw.get("kind") or "")
+        if role != "host":
+            continue
+
+        output = client.exec_on_node(
+            container_name, f"ethtool -S {_HOST_DATA_INTERFACE}"
+        )
+        stats = parse_ethtool_S(output)
+        records.append({
+            "host": short_name,
+            "interface": _HOST_DATA_INTERFACE,
+            "stats": stats,
+        })
+
+    return envelope(
+        records,
+        source=f"containerlab.host_counters({lab_name})",
+        observed_at_ns=time.time_ns(),
     )

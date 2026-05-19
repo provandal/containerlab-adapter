@@ -53,8 +53,6 @@ def test_adapter_module_exposes_build_server():
 # ---------- stub honesty ----------
 
 @pytest.mark.parametrize("call", [
-    lambda c: __import__("containerlab_adapter.driver.counters",
-                         fromlist=["get_host_counters"]).get_host_counters(c),
     lambda c: __import__("containerlab_adapter.driver.flows",
                          fromlist=["get_flow_records"]).get_flow_records(c),
 ])
