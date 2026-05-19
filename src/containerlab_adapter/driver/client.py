@@ -22,6 +22,7 @@ from typing import Any
 
 
 CONTAINERLAB_BIN = "containerlab"
+DOCKER_BIN = "docker"
 
 
 class ContainerlabError(RuntimeError):
@@ -123,3 +124,41 @@ class ContainerlabClient:
             ["inspect", "-t", str(self.topology_path), "--format", "json"],
             parse_json=True,
         )
+
+    def exec_on_node(self, container_name: str, cmd: str) -> str:
+        """Run a shell command inside a running container; return stdout.
+
+        Uses ``docker exec ... bash -lc`` to match the scout-side
+        capture pattern (the netreplica SONiC image expects a login
+        shell for the ``show`` aliases to resolve). Stderr is captured
+        separately and surfaced on :class:`ContainerlabError`; some
+        SONiC ``show`` commands emit a benign ``/bin/sh: sudo: not
+        found`` warning to stderr that callers should ignore.
+
+        ``container_name`` is the full ``clab-<lab>-<node>`` identifier
+        (the same name ``containerlab inspect`` returns).
+        """
+        argv = [DOCKER_BIN, "exec", container_name, "bash", "-lc", cmd]
+        try:
+            result = subprocess.run(
+                argv,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            raise ContainerlabError(
+                f"docker binary not found in PATH ({exc})",
+                cmd=argv,
+                returncode=-1,
+            ) from exc
+
+        if result.returncode != 0:
+            raise ContainerlabError(
+                f"docker exec on {container_name!r} failed "
+                f"(exit code {result.returncode}): {cmd!r}",
+                cmd=argv,
+                returncode=result.returncode,
+                stderr=result.stderr,
+            )
+        return result.stdout

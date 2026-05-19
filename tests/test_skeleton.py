@@ -53,18 +53,10 @@ def test_adapter_module_exposes_build_server():
 # ---------- stub honesty ----------
 
 @pytest.mark.parametrize("call", [
-    lambda c: __import__("containerlab_adapter.driver.topology",
-                         fromlist=["get_topology"]).get_topology(c),
-    lambda c: __import__("containerlab_adapter.driver.counters",
-                         fromlist=["get_fabric_counters"]).get_fabric_counters(c),
     lambda c: __import__("containerlab_adapter.driver.counters",
                          fromlist=["get_host_counters"]).get_host_counters(c),
     lambda c: __import__("containerlab_adapter.driver.flows",
                          fromlist=["get_flow_records"]).get_flow_records(c),
-    lambda c: __import__("containerlab_adapter.driver.scenarios",
-                         fromlist=["list_scenarios"]).list_scenarios(c),
-    lambda c: __import__("containerlab_adapter.driver.scenarios",
-                         fromlist=["run_scenario"]).run_scenario(c, "hash-polarization"),
 ])
 def test_driver_tool_stubs_raise_notimplemented_with_pending_message(call):
     """All Driver tool stubs must raise NotImplementedError mentioning

@@ -29,6 +29,16 @@ from __future__ import annotations
 from importlib import resources
 
 
+NAME = "hash-polarization"
+
+# Difficulty class for list_scenarios. Matches Doppelgänger's labels —
+# "basic" for fundamental concepts (e.g. spike-burst), "intermediate"
+# for scenarios requiring fabric-feature reasoning (ECMP hashing here),
+# "advanced" for multi-signal correlation. Provisional pending eval
+# calibration.
+DIFFICULTY = "intermediate"
+
+
 SYMPTOM = (
     "About 30% of training-step flows take ~2× as long as the rest. "
     "It started a couple of weeks ago, no firmware change, no topology "
