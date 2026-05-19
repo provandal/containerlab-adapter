@@ -1,0 +1,31 @@
+arp_update                       STOPPED   Not started
+bgpd                             RUNNING   pid 21, uptime 0:01:01
+buffermgrd                       RUNNING   pid 335, uptime 0:00:33
+coppmgrd                         RUNNING   pid 144, uptime 0:00:50
+fdbsyncd                         RUNNING   pid 150, uptime 0:00:47
+fpmsyncd                         RUNNING   pid 156, uptime 0:00:45
+gbsyncd                          STOPPED   Not started
+gearsyncd                        STOPPED   Not started
+intfmgrd                         RUNNING   pid 306, uptime 0:00:39
+natmgrd                          RUNNING   pid 350, uptime 0:00:28
+natsyncd                         RUNNING   pid 353, uptime 0:00:26
+nbrmgrd                          RUNNING   pid 339, uptime 0:00:32
+neighsyncd                       RUNNING   pid 147, uptime 0:00:49
+orchagent                        RUNNING   pid 105, uptime 0:00:52
+portmgrd                         RUNNING   pid 175, uptime 0:00:40
+portsyncd                        RUNNING   pid 96, uptime 0:00:53
+redis-chassis                    STOPPED   Not started
+redis-server                     RUNNING   pid 59, uptime 0:00:57
+restore_neighbors                STOPPED   Not started
+rsyslogd                         RUNNING   pid 54, uptime 0:00:59
+sflowmgrd                        RUNNING   pid 347, uptime 0:00:29
+start.sh                         EXITED    May 19 12:43 PM
+staticd                          RUNNING   pid 332, uptime 0:00:35
+syncd                            RUNNING   pid 80, uptime 0:00:55
+teammgrd                         RUNNING   pid 159, uptime 0:00:43
+teamsyncd                        RUNNING   pid 153, uptime 0:00:46
+tunnelmgrd                       RUNNING   pid 356, uptime 0:00:25
+vlanmgrd                         RUNNING   pid 312, uptime 0:00:38
+vrfmgrd                          RUNNING   pid 162, uptime 0:00:42
+vxlanmgrd                        RUNNING   pid 342, uptime 0:00:30
+zebra                            RUNNING   pid 327, uptime 0:00:36

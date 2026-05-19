@@ -1,0 +1,5 @@
+/bin/sh: 1: sudo: not found
+Usage: show ip [OPTIONS] COMMAND [ARGS]...
+Try "show ip -h" for help.
+
+Error: No such command "bgp".

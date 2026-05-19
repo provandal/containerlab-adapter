@@ -1,0 +1,10 @@
+/bin/sh: 1: sudo: not found
+  Port Rx    PFC0    PFC1    PFC2    PFC3    PFC4    PFC5    PFC6    PFC7
+---------  ------  ------  ------  ------  ------  ------  ------  ------
+Ethernet0     N/A     N/A     N/A     N/A     N/A     N/A     N/A     N/A
+Ethernet4     N/A     N/A     N/A     N/A     N/A     N/A     N/A     N/A
+
+  Port Tx    PFC0    PFC1    PFC2    PFC3    PFC4    PFC5    PFC6    PFC7
+---------  ------  ------  ------  ------  ------  ------  ------  ------
+Ethernet0     N/A     N/A     N/A     N/A     N/A     N/A     N/A     N/A
+Ethernet4     N/A     N/A     N/A     N/A     N/A     N/A     N/A     N/A

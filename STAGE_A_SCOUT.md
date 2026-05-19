@@ -4,7 +4,11 @@ Updated 2026-05-18 (Stage A closed).
 
 ## Outcome
 
-**Stage A partial — local stability is resource-limited; migrating to AWS.**
+**Stage A complete (2026-05-19).** Captured canonical telemetry shapes from a 3-SONiC + 4-host topology running on a dedicated AWS substrate host. Pipeline works end-to-end: containerlab deploy → SONiC supervisord stack RUNNING → telemetry capture → clean teardown. No SONiC crashes, no exit 255 — the local-laptop instability was resource pressure, not a fundamental SONiC issue.
+
+Substrate host: dedicated t3.xlarge (16 GB RAM, Ubuntu 24.04) in AWS us-east-1, provisioned via `terraform/main.tf`, SSM-only access. Captured shapes in `scout-outputs/` are now committed as canonical parser-design references — see the file list at the bottom of this doc.
+
+
 
 Working pieces:
 - wsl-containerlab WSL2 distro (Debian 12, native Docker 27.5.1, containerlab 0.75.0 pre-installed)
@@ -23,7 +27,23 @@ Local death window pattern across iterations:
 
 Each fix moved the failure window but didn't eliminate it. All three SONiC nodes die simultaneously → correlated cause, not per-container config. Combined with the host (Windows + WSL2 + Docker + other concurrent experiments + IDE) at ~31 GB total RAM with visible typing lag, the most plausible read is **cgroup-level memory pressure** taking down the heaviest containers periodically.
 
-**Decision (2026-05-18)**: migrate to AWS for substrate work. The skill design validation goal doesn't depend on running SONiC locally — it needs a stable Linux host with enough RAM. AWS gets us isolation + headroom without continued WSL2/Docker-Desktop debugging. See `AWS_SETUP.md` for the provisioning steps.
+**Decision (2026-05-18, executed 2026-05-19)**: migrate to AWS for substrate work. The skill design validation goal doesn't depend on running SONiC locally — it needs a stable Linux host with enough RAM. AWS gets us isolation + headroom without continued WSL2/Docker-Desktop debugging. See `AWS_SETUP.md` for the manual procedure or `terraform/main.tf` for the IaC. SSM Session Manager is the only access path — no SSH inbound, no keypair management, AWS IAM controls.
+
+## Captured Stage A artifacts in scout-outputs/
+
+Per-node (leaf1, leaf2, spine1) from a netreplica/docker-sonic-vs:latest deploy on the AWS host:
+
+- `inspect.json` (4.1 KB) — canonical containerlab topology JSON: 7 nodes (3 sonic-vs + 4 linux), IPv4/IPv6 addresses, container IDs, kinds, states
+- `<node>-supervisorctl.txt` (~2 KB each) — full SONiC daemon state. Running: orchagent, portsyncd, swss, intfmgrd, natmgrd, neighsyncd, fdbsyncd, fpmsyncd, redis-server, buffermgrd, coppmgrd, portmgrd, nbrmgrd, rsyslogd. Stopped (as expected for a no-BGP-config deploy): bgpd, gbsyncd, gearsyncd, redis-chassis, restore_neighbors, arp_update
+- `<node>-show_interfaces_status.txt` (~3.8 KB each) — full Force10-S6000-style port table: Ethernet0..Ethernet124 declared at 100G, mapped to Linux veths (Ethernet0 -> swp1), all admin down (no BGP config)
+- `<node>-show_interfaces_counters.txt` (~700 B each) — interface-counter table shape (empty values since no traffic, but structure preserved)
+- `<node>-show_queue_counters.txt` (~500 B each) — queue counter table shape per port/queue
+- `<node>-show_pfc_counters.txt` (~700 B each) — PFC pause-frame counter table shape
+- `<node>-show_priority-group_watermark_headroom.txt` (~100 B each) — PG watermark table shape
+- `<node>-show_ip_bgp_summary.txt` (~130 B each) — BGP empty (no neighbors configured)
+- `<node>-ip_link.txt` (~6.4 KB each) — Linux interface state including containerlab-wired veths
+
+Notable image quirk: SONiC's `show ...` wrapper script emits `/bin/sh: 1: sudo: not found` on stderr in this netreplica container build — the commands still produce output on stdout. Parsers should ignore that stderr line.
 
 The original Azure-pipeline `docker-sonic-vs.gz` image (built for sonic-mgmt's testing harness, not containerlab) required multiple workarounds (cmd override, `setsid -w`, port-conflict race) and is **not** what we'll ship with. `netreplica/docker-sonic-vs` is the canonical containerlab-ready build per the netreplica/templates repository.
 

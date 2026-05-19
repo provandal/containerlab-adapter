@@ -31,8 +31,11 @@ terraform/terraform.tfstate.backup
 terraform/*.tfvars
 !terraform/*.tfvars.example
 
-# Scout outputs (raw API/SSH dumps — workspace-private)
-scout-outputs/
+# Scout outputs (raw API/SSH dumps from a running substrate). Stage A
+# Scout artifacts now committed as canonical parser-design references;
+# future runs may add more here. Idle SONiC defaults + topology graph
+# don't contain sensitive data.
+# scout-outputs/
 
 # IDE
 .vscode/

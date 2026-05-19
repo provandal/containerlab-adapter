@@ -1,0 +1,102 @@
+{
+  "hash-polarization": [
+    {
+      "lab_name": "hash-polarization",
+      "labPath": "src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "absLabPath": "/opt/harnessit/containerlab-adapter/src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "name": "clab-hash-polarization-host1",
+      "container_id": "25b144649b0f",
+      "image": "ghcr.io/srl-labs/network-multitool",
+      "kind": "linux",
+      "state": "running",
+      "status": "Up About a minute",
+      "ipv4_address": "172.100.100.8/24",
+      "ipv6_address": "3fff:172:100:100::8/64",
+      "owner": "root"
+    },
+    {
+      "lab_name": "hash-polarization",
+      "labPath": "src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "absLabPath": "/opt/harnessit/containerlab-adapter/src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "name": "clab-hash-polarization-host2",
+      "container_id": "79e04f334d5a",
+      "image": "ghcr.io/srl-labs/network-multitool",
+      "kind": "linux",
+      "state": "running",
+      "status": "Up About a minute",
+      "ipv4_address": "172.100.100.4/24",
+      "ipv6_address": "3fff:172:100:100::4/64",
+      "owner": "root"
+    },
+    {
+      "lab_name": "hash-polarization",
+      "labPath": "src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "absLabPath": "/opt/harnessit/containerlab-adapter/src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "name": "clab-hash-polarization-host3",
+      "container_id": "dac17680970d",
+      "image": "ghcr.io/srl-labs/network-multitool",
+      "kind": "linux",
+      "state": "running",
+      "status": "Up About a minute",
+      "ipv4_address": "172.100.100.7/24",
+      "ipv6_address": "3fff:172:100:100::7/64",
+      "owner": "root"
+    },
+    {
+      "lab_name": "hash-polarization",
+      "labPath": "src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "absLabPath": "/opt/harnessit/containerlab-adapter/src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "name": "clab-hash-polarization-host4",
+      "container_id": "08f4d81c91b6",
+      "image": "ghcr.io/srl-labs/network-multitool",
+      "kind": "linux",
+      "state": "running",
+      "status": "Up About a minute",
+      "ipv4_address": "172.100.100.3/24",
+      "ipv6_address": "3fff:172:100:100::3/64",
+      "owner": "root"
+    },
+    {
+      "lab_name": "hash-polarization",
+      "labPath": "src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "absLabPath": "/opt/harnessit/containerlab-adapter/src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "name": "clab-hash-polarization-leaf1",
+      "container_id": "263bf3b8c945",
+      "image": "netreplica/docker-sonic-vs:latest",
+      "kind": "sonic-vs",
+      "state": "running",
+      "status": "Up About a minute",
+      "ipv4_address": "172.100.100.2/24",
+      "ipv6_address": "3fff:172:100:100::2/64",
+      "owner": "root"
+    },
+    {
+      "lab_name": "hash-polarization",
+      "labPath": "src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "absLabPath": "/opt/harnessit/containerlab-adapter/src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "name": "clab-hash-polarization-leaf2",
+      "container_id": "726a03e74fad",
+      "image": "netreplica/docker-sonic-vs:latest",
+      "kind": "sonic-vs",
+      "state": "running",
+      "status": "Up About a minute",
+      "ipv4_address": "172.100.100.5/24",
+      "ipv6_address": "3fff:172:100:100::5/64",
+      "owner": "root"
+    },
+    {
+      "lab_name": "hash-polarization",
+      "labPath": "src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "absLabPath": "/opt/harnessit/containerlab-adapter/src/containerlab_adapter/topologies/hash_polarization.clab.yaml",
+      "name": "clab-hash-polarization-spine1",
+      "container_id": "e469ba47561c",
+      "image": "netreplica/docker-sonic-vs:latest",
+      "kind": "sonic-vs",
+      "state": "running",
+      "status": "Up About a minute",
+      "ipv4_address": "172.100.100.6/24",
+      "ipv6_address": "3fff:172:100:100::6/64",
+      "owner": "root"
+    }
+  ]
+}

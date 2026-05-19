@@ -1,0 +1,81 @@
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: eth0@if5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default 
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+3: Ethernet24: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+4: Ethernet28: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+5: Ethernet36: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+6: Ethernet32: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+7: Ethernet40: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+8: Ethernet44: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+9: Ethernet0: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+10: Ethernet4: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+11: Ethernet8: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+12: eth1@if11: <BROADCAST,MULTICAST,PROMISC> mtu 1514 qdisc noqueue state DOWN mode DEFAULT group default 
+    link/ether aa:c1:ab:ed:fe:ac brd ff:ff:ff:ff:ff:ff link-netnsid 2
+    altname clab-o-b53bd494e6225766
+13: Ethernet12: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+14: Ethernet20: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+15: eth3@if16: <BROADCAST,MULTICAST,PROMISC> mtu 1514 qdisc noqueue state DOWN mode DEFAULT group default 
+    link/ether aa:c1:ab:cd:85:6b brd ff:ff:ff:ff:ff:ff link-netnsid 1
+    altname clab-o-2b717490ceac7bb4
+16: Ethernet16: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+17: Ethernet52: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+18: Ethernet48: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+19: Ethernet56: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+20: eth2@if19: <BROADCAST,MULTICAST,PROMISC> mtu 1514 qdisc noqueue state DOWN mode DEFAULT group default 
+    link/ether aa:c1:ab:a1:8f:e4 brd ff:ff:ff:ff:ff:ff link-netnsid 3
+    altname clab-o-63377870ac62a999
+21: Ethernet60: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+22: Ethernet68: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+23: Ethernet64: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+24: Ethernet72: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+25: Ethernet76: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+26: Ethernet104: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+27: Ethernet108: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+28: Ethernet116: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+29: Ethernet112: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+30: Ethernet124: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+31: Ethernet120: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+32: Ethernet84: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+33: Ethernet80: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+34: Ethernet88: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+35: Ethernet92: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+36: Ethernet100: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+37: Ethernet96: <BROADCAST,MULTICAST> mtu 9100 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+38: Bridge: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 9100 qdisc noqueue state DOWN mode DEFAULT group default qlen 1000
+    link/ether 66:f3:c0:45:bd:35 brd ff:ff:ff:ff:ff:ff
+39: dummy: <BROADCAST,NOARP> mtu 1500 qdisc noop master Bridge state DOWN mode DEFAULT group default qlen 1000
+    link/ether b2:c4:fb:78:09:47 brd ff:ff:ff:ff:ff:ff

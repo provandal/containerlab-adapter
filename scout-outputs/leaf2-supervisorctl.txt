@@ -1,0 +1,31 @@
+arp_update                       STOPPED   Not started
+bgpd                             STOPPED   Not started
+buffermgrd                       RUNNING   pid 340, uptime 0:00:48
+coppmgrd                         RUNNING   pid 149, uptime 0:01:05
+fdbsyncd                         RUNNING   pid 155, uptime 0:01:02
+fpmsyncd                         RUNNING   pid 161, uptime 0:00:59
+gbsyncd                          STOPPED   Not started
+gearsyncd                        STOPPED   Not started
+intfmgrd                         RUNNING   pid 311, uptime 0:00:54
+natmgrd                          RUNNING   pid 355, uptime 0:00:42
+natsyncd                         RUNNING   pid 358, uptime 0:00:41
+nbrmgrd                          RUNNING   pid 344, uptime 0:00:47
+neighsyncd                       RUNNING   pid 152, uptime 0:01:03
+orchagent                        RUNNING   pid 108, uptime 0:01:07
+portmgrd                         RUNNING   pid 180, uptime 0:00:55
+portsyncd                        RUNNING   pid 97, uptime 0:01:08
+redis-chassis                    STOPPED   Not started
+redis-server                     RUNNING   pid 60, uptime 0:01:12
+restore_neighbors                STOPPED   Not started
+rsyslogd                         RUNNING   pid 55, uptime 0:01:14
+sflowmgrd                        RUNNING   pid 352, uptime 0:00:44
+start.sh                         EXITED    May 19 12:43 PM
+staticd                          RUNNING   pid 337, uptime 0:00:49
+syncd                            RUNNING   pid 81, uptime 0:01:09
+teammgrd                         RUNNING   pid 164, uptime 0:00:58
+teamsyncd                        RUNNING   pid 158, uptime 0:01:01
+tunnelmgrd                       RUNNING   pid 361, uptime 0:00:40
+vlanmgrd                         RUNNING   pid 317, uptime 0:00:52
+vrfmgrd                          RUNNING   pid 167, uptime 0:00:56
+vxlanmgrd                        RUNNING   pid 347, uptime 0:00:45
+zebra                            RUNNING   pid 332, uptime 0:00:51
