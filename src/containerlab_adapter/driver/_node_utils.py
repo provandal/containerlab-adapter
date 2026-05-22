@@ -9,7 +9,11 @@ from __future__ import annotations
 
 
 ROLE_PREFIXES = ("leaf", "spine", "host")
-SWITCH_ROLES = ("leaf", "spine")
+# "switch" is the generic fallback role that classify_role assigns to any
+# non-host kind whose name doesn't carry a leaf/spine prefix (e.g. "sw1"
+# in the sonic-substrate-recipe vrspike-1port reference). Fabric tools
+# include it so single-switch debug topologies get picked up.
+SWITCH_ROLES = ("leaf", "spine", "switch")
 
 
 def classify_role(name: str, kind: str) -> str:

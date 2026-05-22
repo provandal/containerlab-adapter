@@ -239,6 +239,36 @@ _FABRIC_SHOW_COMMANDS = {
     "pg_wm":      "show priority-group watermark headroom",
 }
 
+# Known-benign stderr signatures from `show priority-group watermark headroom`.
+# The command exits non-zero when no buffer pool watermark counters are
+# instantiated (a minimal config_db.json with no BUFFER_POOL_TABLE or
+# BUFFER_PG_TABLE entries — exactly what the sonic-substrate-recipe ships
+# for the 1-port reference). Substrate-Phase research note 2026-05-21.
+# Treat these as "no PG data" rather than a fatal counter retrieval failure.
+_PG_WATERMARK_EMPTY_MARKERS = (
+    "Object map is empty",
+    "No counter values found",
+)
+
+
+def _safe_pg_watermark_fetch(
+    client: ContainerlabClient,
+    container_name: str,
+    **exec_kwargs,
+) -> str:
+    """Run the PG watermark show command, returning empty text if the
+    command surfaces a known no-data condition. Other failures propagate
+    unchanged so genuine transport or auth problems still fail loud."""
+    try:
+        return client.exec_on_node(
+            container_name, _FABRIC_SHOW_COMMANDS["pg_wm"], **exec_kwargs
+        )
+    except ContainerlabError as exc:
+        stderr = (exc.stderr or "") + (str(exc) or "")
+        if any(marker in stderr for marker in _PG_WATERMARK_EMPTY_MARKERS):
+            return ""
+        raise
+
 
 def get_fabric_counters(client: ContainerlabClient) -> dict[str, Any]:
     """Snapshot per-(switch, port) fabric counters across all switches.
@@ -268,21 +298,27 @@ def get_fabric_counters(client: ContainerlabClient) -> dict[str, Any]:
     for raw in lab_records:
         container_name = raw.get("name", "")
         short_name = strip_lab_prefix(container_name, lab_name)
-        role = classify_role(short_name, raw.get("kind") or "")
+        kind = raw.get("kind") or ""
+        role = classify_role(short_name, kind)
         if role not in SWITCH_ROLES:
             continue
 
+        # mgmt_ip is required by the SSH-exec path for kind=sonic-vm.
+        # Docker-exec kinds ignore it.
+        mgmt_ip = (raw.get("ipv4_address") or "").split("/")[0] or None
+        exec_kwargs = {"kind": kind, "mgmt_ip": mgmt_ip}
+
         iface_rows = parse_interfaces_counters(
-            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["interfaces"])
+            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["interfaces"], **exec_kwargs)
         )
         queue_rows = parse_queue_counters(
-            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["queue"])
+            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["queue"], **exec_kwargs)
         )
         pfc_by_port = parse_pfc_counters(
-            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["pfc"])
+            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["pfc"], **exec_kwargs)
         )
         pg_by_port = parse_pg_watermark_headroom(
-            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["pg_wm"])
+            _safe_pg_watermark_fetch(client, container_name, **exec_kwargs)
         )
 
         # Interfaces table is the index — it lists every port on the
@@ -390,12 +426,15 @@ def get_host_counters(client: ContainerlabClient) -> dict[str, Any]:
     for raw in lab_records:
         container_name = raw.get("name", "")
         short_name = strip_lab_prefix(container_name, lab_name)
-        role = classify_role(short_name, raw.get("kind") or "")
+        kind = raw.get("kind") or ""
+        role = classify_role(short_name, kind)
         if role != "host":
             continue
 
+        mgmt_ip = (raw.get("ipv4_address") or "").split("/")[0] or None
         output = client.exec_on_node(
-            container_name, f"ethtool -S {_HOST_DATA_INTERFACE}"
+            container_name, f"ethtool -S {_HOST_DATA_INTERFACE}",
+            kind=kind, mgmt_ip=mgmt_ip,
         )
         stats = parse_ethtool_S(output)
         records.append({

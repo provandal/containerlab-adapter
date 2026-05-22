@@ -209,7 +209,12 @@ def patched_fabric(real_client: ContainerlabClient, inspect_stdout: str):
     - inspect() returns the scout inspect.json
     - exec_on_node(container, cmd) routes by short-node-name to scout fixtures
     """
-    def exec_on_node_side_effect(container_name: str, cmd: str) -> str:
+    def exec_on_node_side_effect(container_name: str, cmd: str, **_kwargs) -> str:
+        # counters now passes kind + mgmt_ip kwargs through to exec_on_node so
+        # the SSH branch can fire for kind=sonic-vm. The hermetic test doesn't
+        # exercise the transport layer (we patch exec_on_node itself), so the
+        # kwargs are accepted and ignored — but the side_effect must accept
+        # them or MagicMock raises TypeError.
         prefix = "clab-hash-polarization-"
         assert container_name.startswith(prefix), container_name
         short = container_name[len(prefix):]
@@ -363,6 +368,143 @@ def test_exec_on_node_raises_on_missing_docker_binary(fake_topology: Path):
             client.exec_on_node("clab-test-node1", "echo hello")
 
 
+def test_exec_on_node_sonic_vm_dispatches_to_sshpass_ssh(fake_topology: Path):
+    """kind=sonic-vm routes through sshpass + ssh with admin@<mgmt_ip>.
+    The cmd is wrapped in bash -lc so SONiC show-aliases resolve, matching
+    the docker-exec path's login-shell behavior."""
+    client = ContainerlabClient(topology_path=fake_topology)
+    with patch("subprocess.run", return_value=_fake_subprocess_result(stdout="x")) as runner:
+        client.exec_on_node(
+            "clab-vrspike-sw1", "show interfaces counters",
+            kind="sonic-vm", mgmt_ip="172.101.101.2",
+        )
+    args = runner.call_args.args[0]
+    assert args[0] == "sshpass"
+    assert args[1] == "-p"
+    assert args[2] == "admin"
+    assert args[3] == "ssh"
+    assert "admin@172.101.101.2" in args
+    # the wrapped command should be the last positional arg and reference bash -lc
+    assert args[-1].startswith("bash -lc ")
+    assert "show interfaces counters" in args[-1]
+
+
+def test_exec_on_node_sonic_vm_without_mgmt_ip_raises(fake_topology: Path):
+    """sonic-vm without mgmt_ip can't be reached. Fail loud at call site
+    rather than letting ssh fail with a confusing 'no host' error."""
+    client = ContainerlabClient(topology_path=fake_topology)
+    with pytest.raises(ContainerlabError, match="requires mgmt_ip"):
+        client.exec_on_node(
+            "clab-vrspike-sw1", "show interfaces counters",
+            kind="sonic-vm", mgmt_ip=None,
+        )
+
+
+def test_exec_on_node_linux_kind_explicit_uses_docker_exec(fake_topology: Path):
+    """kind=linux (or any non-sonic-vm value) routes to docker exec ...
+    bash -lc, preserving the legacy behavior."""
+    client = ContainerlabClient(topology_path=fake_topology)
+    with patch("subprocess.run", return_value=_fake_subprocess_result(stdout="x")) as runner:
+        client.exec_on_node(
+            "clab-vrspike-host1", "ethtool -S eth1",
+            kind="linux", mgmt_ip="172.101.101.3",
+        )
+    args = runner.call_args.args[0]
+    assert args[0] == "docker"
+    assert args[1] == "exec"
+    assert args[2] == "clab-vrspike-host1"
+    assert args[3] == "bash"
+    assert args[4] == "-lc"
+
+
+def test_exec_on_node_sonic_vm_ssh_failure_raises(fake_topology: Path):
+    """Non-zero exit from ssh surfaces as ContainerlabError with the
+    transport labeled correctly ('ssh' not 'docker exec') so the agent
+    sees which transport failed."""
+    client = ContainerlabClient(topology_path=fake_topology)
+    with patch("subprocess.run", return_value=_fake_subprocess_result(
+        stdout="", stderr="Permission denied", returncode=255,
+    )):
+        with pytest.raises(ContainerlabError) as excinfo:
+            client.exec_on_node(
+                "clab-vrspike-sw1", "show interfaces counters",
+                kind="sonic-vm", mgmt_ip="172.101.101.2",
+            )
+    assert excinfo.value.returncode == 255
+    assert "ssh on" in str(excinfo.value)
+
+
+def test_pg_watermark_empty_object_map_swallowed_as_empty(real_client, inspect_stdout):
+    """The vrnetlab/sonic_sonic-vs substrate's minimal config_db.json has
+    no BUFFER_POOL_TABLE, so `show priority-group watermark headroom`
+    exits non-zero with 'Object map is empty!' on stderr. The fabric
+    counters tool must treat that as 'no PG data' (None per port), not a
+    fatal failure — other counters from the same switch are still useful."""
+    from containerlab_adapter.driver.client import ContainerlabError
+
+    populated_iface = (
+        "    IFACE    STATE    RX_OK    RX_BPS    RX_UTIL    RX_ERR    RX_DRP    RX_OVR    TX_OK    TX_BPS    TX_UTIL    TX_ERR    TX_DRP    TX_OVR\n"
+        "---------  -------  -------  --------  ---------  --------  --------  --------  -------  --------  ---------  --------  --------  --------\n"
+        "Ethernet0      U        50         0          0         0         0         0      100         0          0         0         0         0\n"
+    )
+
+    def exec_side_effect(container_name: str, cmd: str, **_kwargs) -> str:
+        if cmd == "show priority-group watermark headroom":
+            raise ContainerlabError(
+                "ssh on 'clab-x-leaf1' failed (exit code 1)",
+                cmd=["ssh", "admin@x", "bash -lc ..."],
+                returncode=1,
+                stderr="Object map is empty!\n",
+            )
+        if cmd == "show interfaces counters":
+            return populated_iface
+        return ""  # empty queue + pfc
+
+    with patch.object(real_client, "inspect", return_value=json.loads(inspect_stdout)), \
+         patch.object(real_client, "exec_on_node", side_effect=exec_side_effect):
+        env = get_fabric_counters(real_client)
+
+    # Per-switch records still populate; PG watermark column is None.
+    assert env["data"]
+    for record in env["data"]:
+        assert record["pg_watermark_headroom"] is None
+        assert record["rx"]["ok"] == 50  # interfaces counters made it through
+
+
+def test_pg_watermark_unknown_failure_propagates(real_client, inspect_stdout):
+    """Only the known-benign 'Object map is empty' shape is swallowed.
+    Other ssh / transport failures must still fail loud — otherwise we'd
+    silently mask real broken-switch conditions."""
+    from containerlab_adapter.driver.client import ContainerlabError
+
+    def exec_side_effect(container_name: str, cmd: str, **_kwargs) -> str:
+        if cmd == "show priority-group watermark headroom":
+            raise ContainerlabError(
+                "ssh failed", cmd=[], returncode=255,
+                stderr="Permission denied (publickey,password).\n",
+            )
+        return ""
+
+    with patch.object(real_client, "inspect", return_value=json.loads(inspect_stdout)), \
+         patch.object(real_client, "exec_on_node", side_effect=exec_side_effect):
+        with pytest.raises(ContainerlabError) as excinfo:
+            get_fabric_counters(real_client)
+    assert excinfo.value.returncode == 255
+    assert "Permission denied" in excinfo.value.stderr
+
+
+def test_exec_on_node_sonic_vm_missing_sshpass_raises(fake_topology: Path):
+    """If sshpass isn't installed, surface that explicitly rather than
+    falling back silently or emitting a cryptic stack."""
+    client = ContainerlabClient(topology_path=fake_topology)
+    with patch("subprocess.run", side_effect=FileNotFoundError("sshpass")):
+        with pytest.raises(ContainerlabError, match="sshpass binary not found"):
+            client.exec_on_node(
+                "clab-vrspike-sw1", "show interfaces counters",
+                kind="sonic-vm", mgmt_ip="172.101.101.2",
+            )
+
+
 # ============================================================
 # parse_ethtool_S
 # ============================================================
@@ -409,7 +551,10 @@ def patched_hosts(real_client: ContainerlabClient, inspect_stdout: str):
     """Hermetic harness for get_host_counters: inspect returns the
     scout JSON; exec_on_node returns the captured ethtool fixture for
     every host (real shape, just the same per-host)."""
-    def exec_side_effect(container_name: str, cmd: str) -> str:
+    def exec_side_effect(container_name: str, cmd: str, **_kwargs) -> str:
+        # Accept (and ignore) kind/mgmt_ip kwargs threaded through from
+        # get_host_counters — see the corresponding comment on the
+        # fabric counters fixture above.
         assert cmd == "ethtool -S eth1", f"unexpected cmd: {cmd!r}"
         prefix = "clab-hash-polarization-"
         assert container_name.startswith(prefix)

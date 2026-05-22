@@ -161,6 +161,28 @@ def test_specific_spine_leaf_link_present(topology_envelope: dict):
     assert frozenset({"spine1:eth1", "leaf1:eth1"}) in pairs
 
 
+# ---------- role classification ----------
+
+def test_classify_role_handles_generic_switch_name_and_sonic_vm_kind():
+    """The sonic-substrate-recipe vrspike-1port reference names the
+    switch ``sw1`` (no leaf/spine prefix) with kind ``sonic-vm``. The
+    name has no role prefix, the kind isn't ``linux``, so classify_role
+    falls through to ``switch`` — which SWITCH_ROLES now recognizes, so
+    fabric counters target this node correctly."""
+    from containerlab_adapter.driver._node_utils import (
+        SWITCH_ROLES,
+        classify_role,
+    )
+
+    assert classify_role("sw1", "sonic-vm") == "switch"
+    assert "switch" in SWITCH_ROLES
+    # Existing role mappings still resolve via name prefix even when
+    # the kind is sonic-vm (the new substrate).
+    assert classify_role("leaf1", "sonic-vm") == "leaf"
+    assert classify_role("spine1", "sonic-vm") == "spine"
+    assert classify_role("host1", "linux") == "host"
+
+
 # ---------- error handling ----------
 
 def test_get_topology_raises_when_no_lab_deployed(real_client: ContainerlabClient):

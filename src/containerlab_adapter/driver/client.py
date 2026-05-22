@@ -15,6 +15,7 @@ change shape based on Scout observations.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,30 @@ from typing import Any
 
 CONTAINERLAB_BIN = "containerlab"
 DOCKER_BIN = "docker"
+SSH_BIN = "ssh"
+SSHPASS_BIN = "sshpass"
+
+# Kinds whose `containerlab inspect` payload represents a Linux container
+# the driver can exec into directly via `docker exec`. Anything else
+# (currently only "sonic-vm") goes through the SSH-to-mgmt-IP path
+# because the container is a vrnetlab QEMU host with the real SONiC OS
+# running inside.
+_DOCKER_EXEC_KINDS = frozenset({"linux", "sonic-vs"})
+_SSH_EXEC_KINDS = frozenset({"sonic-vm"})
+
+# SSH options for talking to a vrnetlab/sonic_sonic-vs VM. Password auth
+# against the canonical admin/admin built into the upstream sonic-vs.img;
+# StrictHostKeyChecking off because the mgmt IP rotates per deploy.
+_SONIC_VM_SSH_USER = "admin"
+_SONIC_VM_SSH_PASSWORD = "admin"
+_SSH_OPTS = (
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "ConnectTimeout=15",
+    "-o", "PreferredAuthentications=password",
+    "-o", "PubkeyAuthentication=no",
+    "-o", "LogLevel=ERROR",
+)
 
 
 class ContainerlabError(RuntimeError):
@@ -125,20 +150,57 @@ class ContainerlabClient:
             parse_json=True,
         )
 
-    def exec_on_node(self, container_name: str, cmd: str) -> str:
-        """Run a shell command inside a running container; return stdout.
+    def exec_on_node(
+        self,
+        container_name: str,
+        cmd: str,
+        *,
+        kind: str | None = None,
+        mgmt_ip: str | None = None,
+    ) -> str:
+        """Run a shell command on a running node; return stdout.
 
-        Uses ``docker exec ... bash -lc`` to match the scout-side
-        capture pattern (the netreplica SONiC image expects a login
-        shell for the ``show`` aliases to resolve). Stderr is captured
-        separately and surfaced on :class:`ContainerlabError`; some
-        SONiC ``show`` commands emit a benign ``/bin/sh: sudo: not
-        found`` warning to stderr that callers should ignore.
+        The transport branches on ``kind`` — the kind value containerlab's
+        inspect output reports for the node. Linux-shaped containers
+        (``linux``, legacy ``sonic-vs``) get ``docker exec ... bash -lc``;
+        vrnetlab-style QEMU-backed containers (``sonic-vm``) get
+        ``sshpass ssh admin@<mgmt_ip> bash -lc``. The login-shell wrapper
+        is preserved on both branches so SONiC's ``show`` aliases resolve.
+
+        When ``kind`` is ``None`` (legacy callers that haven't been
+        updated), defaults to the docker-exec path. Callers that already
+        have inspect data should pass ``kind`` + ``mgmt_ip`` for explicit
+        routing.
 
         ``container_name`` is the full ``clab-<lab>-<node>`` identifier
         (the same name ``containerlab inspect`` returns).
+
+        Stderr is captured separately and surfaced on
+        :class:`ContainerlabError`; some SONiC ``show`` commands emit a
+        benign ``/bin/sh: sudo: not found`` warning to stderr that
+        callers should ignore.
         """
-        argv = [DOCKER_BIN, "exec", container_name, "bash", "-lc", cmd]
+        if kind in _SSH_EXEC_KINDS:
+            if not mgmt_ip:
+                raise ContainerlabError(
+                    f"exec_on_node({container_name!r}) for kind={kind!r} "
+                    f"requires mgmt_ip — inspect's ipv4_address field "
+                    f"must be threaded through from the caller",
+                    cmd=[SSH_BIN, f"admin@?"],
+                    returncode=-1,
+                )
+            wrapped = f"bash -lc {shlex.quote(cmd)}"
+            argv = [
+                SSHPASS_BIN, "-p", _SONIC_VM_SSH_PASSWORD,
+                SSH_BIN, *_SSH_OPTS,
+                f"{_SONIC_VM_SSH_USER}@{mgmt_ip}",
+                wrapped,
+            ]
+            missing_binary_hint = "sshpass"
+        else:
+            argv = [DOCKER_BIN, "exec", container_name, "bash", "-lc", cmd]
+            missing_binary_hint = "docker"
+
         try:
             result = subprocess.run(
                 argv,
@@ -148,14 +210,15 @@ class ContainerlabClient:
             )
         except FileNotFoundError as exc:
             raise ContainerlabError(
-                f"docker binary not found in PATH ({exc})",
+                f"{missing_binary_hint} binary not found in PATH ({exc})",
                 cmd=argv,
                 returncode=-1,
             ) from exc
 
         if result.returncode != 0:
+            transport = "ssh" if kind in _SSH_EXEC_KINDS else "docker exec"
             raise ContainerlabError(
-                f"docker exec on {container_name!r} failed "
+                f"{transport} on {container_name!r} failed "
                 f"(exit code {result.returncode}): {cmd!r}",
                 cmd=argv,
                 returncode=result.returncode,
