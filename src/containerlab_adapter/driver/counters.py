@@ -1,20 +1,32 @@
 """Fabric and host counter retrieval against running SONiC nodes.
 
-``get_fabric_counters`` parses four SONiC ``show`` commands per switch
-into per-(switch, port) records carrying nested rx/tx port counters,
-queue-level rollups, per-priority PFC sent/rcvd, and PG watermarks —
-matching Doppelgänger v0.3 §4.1.
+``get_fabric_counters`` reads SONiC's COUNTERS_DB (Redis db 2) directly
+via a single bash-batched ``redis-cli`` dump per switch, then composes
+per-(switch, port) records matching Doppelgänger v0.3 §4.1.
 
-**v0.1 scope.** The Stage-A Scout fixtures under ``scout-outputs/`` are
-empty (no traffic flowed during the capture). The parsers correctly
-extract the N/A shape and are structured to extend to populated rows;
-the populated row format (BPS unit strings, percentage strings,
-comma-separated integers) is captured defensively in ``_parse_value``
-and re-validated against a live populated capture when scenario traffic
-generation lands.
+**Why this bypasses ``show interfaces counters``.** On the
+``vrnetlab/sonic_sonic-vs:20260520`` substrate the SAI port objects in
+ASIC_DB and the COUNTERS_PORT_NAME_MAP that ``show`` iterates only
+populate on a fresh ``swss`` restart — the cold-boot state we observed
+had per-OID counters ticking but ``show`` returning header-only rows.
+Reading COUNTERS_DB directly avoids that fragility AND gives us access
+to the full per-priority PFC vector + per-queue + per-PG stats without
+parsing five different table layouts.
 
-``get_host_counters`` still pending — needs the host-image
-``ethtool -S`` field shape, which Stage A did not capture.
+The transport contract is unchanged: one ``client.exec_on_node`` call
+per switch over the kind-specific shell (docker exec or sshpass ssh).
+Authority over which Redis databases hold what lives in canonical SONiC
+docs and is sticky:
+
+  - db 2  COUNTERS_DB:  COUNTERS_PORT_NAME_MAP, COUNTERS_QUEUE_NAME_MAP,
+                        COUNTERS_PG_NAME_MAP, plus ``COUNTERS:oid:0x*``
+                        hashes carrying ``SAI_PORT_STAT_*`` /
+                        ``SAI_QUEUE_STAT_*`` /
+                        ``SAI_INGRESS_PRIORITY_GROUP_STAT_*`` fields.
+  - db 6  STATE_DB:     ``PORT_TABLE|<port>`` operational state.
+
+``get_host_counters`` is unchanged — ``ethtool -S eth1`` against each
+host node, exactly as before.
 """
 
 from __future__ import annotations
@@ -34,252 +46,285 @@ from containerlab_adapter.driver.envelope import envelope
 
 # ---------- low-level helpers ----------
 
-_SUDO_NOT_FOUND = re.compile(r"^/bin/sh:\s*\d+:\s*sudo:\s*not found\s*$")
 _PFC_COLUMNS = 8
+_PG_COLUMNS = 8
 
 
-def _clean_lines(text: str) -> Iterator[str]:
-    """Yield trimmed lines from SONiC show-command output.
-
-    Filters the benign ``/bin/sh: 1: sudo: not found`` warning the
-    netreplica image emits to stderr — it can leak into stdout when
-    captured by tools that merge streams (Stage A's scout captures did
-    this with ``2>&1``), and parsers must be robust to its presence.
-    """
-    for line in text.splitlines():
-        if _SUDO_NOT_FOUND.match(line):
-            continue
-        yield line.rstrip()
-
-
-def _parse_value(token: str) -> Any:
-    """Parse a single SONiC counter token.
-
-    ``N/A`` collapses to None (not 0 — absence is data, distinct from
-    a measured zero). Plain integers (with optional thousands
-    separators) parse to int. Anything else round-trips as the raw
-    string; this is the extension point for populated formats whose
-    shape we have not yet seen in a real capture (e.g. ``"1.23 KB/s"``,
-    ``"12.34%"``, link-state letters like ``"U"``).
-    """
+def _parse_int(token: str | None) -> int | None:
+    """Parse a redis-cli integer cell. ``None``/missing → None."""
+    if token is None:
+        return None
     token = token.strip()
-    if token in ("N/A", "n/a", "NA", ""):
+    if not token:
         return None
     no_commas = token.replace(",", "")
     if no_commas.lstrip("-").isdigit():
         return int(no_commas)
-    return token
+    return None
 
 
-# ---------- per-table parsers ----------
+# ---------- the on-switch dump script ----------
+#
+# A single bash invocation that dumps everything the parser needs in
+# one round-trip. Section markers are unambiguous (no SAI key starts
+# with ``=``) so the parser can run as a flat state machine.
+#
+# The script uses ``sudo`` because the SONiC ``admin`` user can't read
+# the Redis databases directly. The dispatch path through
+# ``client.exec_on_node`` already wraps in ``bash -lc`` for the docker
+# branch; the sonic-vm SSH branch does the same. Embedded single
+# quotes inside printf would tangle with the outer shell wrap, so we
+# use ``echo`` with safe literal strings only.
+_FABRIC_DUMP_SCRIPT = r"""
+set -u
+echo '===PORT_MAP==='
+sudo redis-cli -n 2 hgetall COUNTERS_PORT_NAME_MAP
+echo '===QUEUE_MAP==='
+sudo redis-cli -n 2 hgetall COUNTERS_QUEUE_NAME_MAP
+echo '===PG_MAP==='
+sudo redis-cli -n 2 hgetall COUNTERS_PG_NAME_MAP
+echo '===PORT_OPER==='
+for k in $(sudo redis-cli -n 6 keys 'PORT_TABLE|Ethernet*'); do
+  echo "---KEY:${k}---"
+  sudo redis-cli -n 6 hgetall "$k"
+done
+echo '===OIDS_BEGIN==='
+for key in $(sudo redis-cli -n 2 --scan --pattern 'COUNTERS:oid:0x*'); do
+  # Emit the marker as "oid:0x..." so it matches the values stored in
+  # the name-map hashes (Redis stores them without the COUNTERS: prefix).
+  echo "---OID:${key#COUNTERS:}---"
+  sudo redis-cli -n 2 hgetall "$key"
+done
+echo '===OIDS_END==='
+"""
 
-def parse_interfaces_counters(text: str) -> list[dict[str, Any]]:
-    """Parse ``show interfaces counters`` into per-port rx/tx dicts.
 
-    The SONiC table has a 14-column shape: IFACE, STATE, then six
-    RX_* and six TX_* columns. Returns one record per port row.
+# ---------- parser ----------
+
+_SECTION_MARKER = re.compile(r"^===([A-Z_]+)===$")
+_KEY_MARKER = re.compile(r"^---KEY:(.+)---$")
+_OID_MARKER = re.compile(r"^---OID:(oid:0x[0-9a-fA-F]+)---$")
+
+
+def parse_fabric_dump(text: str) -> dict[str, Any]:
+    """Parse the bash-batched COUNTERS_DB dump.
+
+    Returns a dict with four sub-dicts::
+
+      {
+        "port_map":  {"Ethernet0": "oid:0x1000000000002", ...},
+        "queue_map": {"Ethernet0:0": "oid:0x15...", ...},
+        "pg_map":    {"Ethernet0:0": "oid:0x1a...", ...},
+        "port_oper": {"Ethernet0": {"oper_status": "up", ...}, ...},
+        "oids":      {"oid:0x...": {"SAI_PORT_STAT_...": "10", ...}, ...},
+      }
+
+    Each ``hgetall`` block in the input is a sequence of alternating
+    key/value lines; an empty hash produces no lines at all. The state
+    machine handles both cases uniformly.
     """
-    rows: list[dict[str, Any]] = []
-    in_data = False
-    for line in _clean_lines(text):
-        if not line:
+    port_map: dict[str, str] = {}
+    queue_map: dict[str, str] = {}
+    pg_map: dict[str, str] = {}
+    port_oper: dict[str, dict[str, str]] = {}
+    oids: dict[str, dict[str, str]] = {}
+
+    section: str | None = None
+    current_key: str | None = None  # for PORT_OPER: PORT_TABLE|Ethernet0
+    current_oid: str | None = None  # for OIDS:   oid:0x...
+    buf: list[str] = []  # alternating-line buffer for current hash
+
+    def flush_alternating(target: dict[str, str]) -> None:
+        # Pair up alternating key/value lines into target.
+        for i in range(0, len(buf) - 1, 2):
+            target[buf[i]] = buf[i + 1]
+        buf.clear()
+
+    for raw in text.splitlines():
+        line = raw.rstrip()
+
+        sec = _SECTION_MARKER.match(line)
+        if sec:
+            # flush whatever was in progress
+            if section == "PORT_MAP":
+                flush_alternating(port_map)
+            elif section == "QUEUE_MAP":
+                flush_alternating(queue_map)
+            elif section == "PG_MAP":
+                flush_alternating(pg_map)
+            elif section == "PORT_OPER" and current_key is not None:
+                d: dict[str, str] = {}
+                flush_alternating(d)
+                # PORT_TABLE|Ethernet0 → Ethernet0
+                short = current_key.split("|", 1)[1] if "|" in current_key else current_key
+                port_oper[short] = d
+                current_key = None
+            elif section == "OIDS_BEGIN" and current_oid is not None:
+                d2: dict[str, str] = {}
+                flush_alternating(d2)
+                oids[current_oid] = d2
+                current_oid = None
+            section = sec.group(1)
             continue
-        if "IFACE" in line and "STATE" in line:
-            in_data = False  # header found; data begins after dashes
+
+        if section == "PORT_OPER":
+            km = _KEY_MARKER.match(line)
+            if km:
+                # close previous key
+                if current_key is not None:
+                    d = {}
+                    flush_alternating(d)
+                    short = current_key.split("|", 1)[1] if "|" in current_key else current_key
+                    port_oper[short] = d
+                current_key = km.group(1)
+                continue
+            if current_key is not None and line:
+                buf.append(line)
             continue
-        if line.lstrip().startswith("---"):
-            in_data = True
+
+        if section == "OIDS_BEGIN":
+            om = _OID_MARKER.match(line)
+            if om:
+                # close previous OID
+                if current_oid is not None:
+                    d2 = {}
+                    flush_alternating(d2)
+                    oids[current_oid] = d2
+                current_oid = om.group(1)
+                continue
+            if current_oid is not None and line:
+                buf.append(line)
             continue
-        if not in_data:
+
+        if section in ("PORT_MAP", "QUEUE_MAP", "PG_MAP") and line:
+            buf.append(line)
+
+    # Final flush — last block in the dump has no trailing marker.
+    if section == "PORT_OPER" and current_key is not None:
+        d = {}
+        flush_alternating(d)
+        short = current_key.split("|", 1)[1] if "|" in current_key else current_key
+        port_oper[short] = d
+    elif section in ("OIDS_BEGIN",) and current_oid is not None:
+        d2 = {}
+        flush_alternating(d2)
+        oids[current_oid] = d2
+
+    return {
+        "port_map": port_map,
+        "queue_map": queue_map,
+        "pg_map": pg_map,
+        "port_oper": port_oper,
+        "oids": oids,
+    }
+
+
+# ---------- SAI → envelope composer ----------
+
+def _compose_port_record(
+    switch_name: str,
+    port_name: str,
+    port_oid: str,
+    dump: dict[str, Any],
+) -> dict[str, Any]:
+    """Build one per-(switch, port) record from the parsed dump.
+
+    The shape is identical to the v0.1 envelope so existing agent
+    prompts and Doppelgänger v0.3 §4.1 expectations stay valid.
+    """
+    port_counters = dump["oids"].get(port_oid, {})
+    oper = dump["port_oper"].get(port_name, {})
+
+    rx = {
+        "ok":   _parse_int(port_counters.get("SAI_PORT_STAT_IF_IN_UCAST_PKTS")),
+        "bps":  None,
+        "util": None,
+        "err":  _parse_int(port_counters.get("SAI_PORT_STAT_IF_IN_ERRORS")),
+        "drp":  _parse_int(port_counters.get("SAI_PORT_STAT_IF_IN_DISCARDS")),
+        "ovr":  None,
+    }
+    tx = {
+        "ok":   _parse_int(port_counters.get("SAI_PORT_STAT_IF_OUT_UCAST_PKTS")),
+        "bps":  None,
+        "util": None,
+        "err":  _parse_int(port_counters.get("SAI_PORT_STAT_IF_OUT_ERRORS")),
+        "drp":  _parse_int(port_counters.get("SAI_PORT_STAT_IF_OUT_DISCARDS")),
+        "ovr":  None,
+    }
+    pfc_rx = [
+        _parse_int(port_counters.get(f"SAI_PORT_STAT_PFC_{i}_RX_PKTS"))
+        for i in range(_PFC_COLUMNS)
+    ]
+    pfc_tx = [
+        _parse_int(port_counters.get(f"SAI_PORT_STAT_PFC_{i}_TX_PKTS"))
+        for i in range(_PFC_COLUMNS)
+    ]
+
+    # Queue rollups — filter the queue_map to entries that belong to this port.
+    queues: list[dict[str, Any]] = []
+    prefix = f"{port_name}:"
+    for alias, qoid in dump["queue_map"].items():
+        if not alias.startswith(prefix):
             continue
-        parts = line.split()
-        # TODO populated capture: rows with BPS in "1.23 KB/s" form
-        # split into 16 tokens; collapse the BPS pairs back to a single
-        # token (or store {value, unit}) when we have a real populated
-        # sample to validate against.
-        if len(parts) != 14:
+        try:
+            txq = int(alias[len(prefix):])
+        except ValueError:
+            # Some platforms suffix UC/MC; skip — surface only canonical txq rows.
             continue
-        rows.append({
-            "port": parts[0],
-            "state": _parse_value(parts[1]),
-            "rx": {
-                "ok":   _parse_value(parts[2]),
-                "bps":  _parse_value(parts[3]),
-                "util": _parse_value(parts[4]),
-                "err":  _parse_value(parts[5]),
-                "drp":  _parse_value(parts[6]),
-                "ovr":  _parse_value(parts[7]),
-            },
-            "tx": {
-                "ok":   _parse_value(parts[8]),
-                "bps":  _parse_value(parts[9]),
-                "util": _parse_value(parts[10]),
-                "err":  _parse_value(parts[11]),
-                "drp":  _parse_value(parts[12]),
-                "ovr":  _parse_value(parts[13]),
-            },
+        qc = dump["oids"].get(qoid, {})
+        queues.append({
+            "txq":        txq,
+            "pkts":       _parse_int(qc.get("SAI_QUEUE_STAT_PACKETS")),
+            "bytes":      _parse_int(qc.get("SAI_QUEUE_STAT_BYTES")),
+            "drop_pkts":  _parse_int(qc.get("SAI_QUEUE_STAT_DROPPED_PACKETS")),
+            "drop_bytes": _parse_int(qc.get("SAI_QUEUE_STAT_DROPPED_BYTES")),
         })
-    return rows
+    queues.sort(key=lambda q: q["txq"])
 
+    # PG watermark headroom — one value per priority-group index 0..7.
+    # Absent PG map entries surface as None at that position; if no PG
+    # data exists for this port at all, surface None (matches v0.1 shape
+    # for substrates with no buffer pool, e.g. the 1-port reference).
+    pg_values: list[Any] = [None] * _PG_COLUMNS
+    pg_found = False
+    for alias, poid in dump["pg_map"].items():
+        if not alias.startswith(prefix):
+            continue
+        try:
+            pg_idx = int(alias[len(prefix):])
+        except ValueError:
+            continue
+        if 0 <= pg_idx < _PG_COLUMNS:
+            pgc = dump["oids"].get(poid, {})
+            pg_values[pg_idx] = _parse_int(
+                pgc.get("SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES")
+            )
+            pg_found = True
+    pg_watermark_headroom: Any = pg_values if pg_found else None
 
-def parse_queue_counters(text: str) -> list[dict[str, Any]]:
-    """Parse ``show queue counters`` into per-(port, txq) rows.
-
-    The SONiC output is a sequence of identically-shaped tables (one
-    per port-prefix-group in our scout-empty capture); rows are
-    collected across all tables. Empty tables yield no rows.
-    """
-    rows: list[dict[str, Any]] = []
-    in_data = False
-    for line in _clean_lines(text):
-        if not line:
-            in_data = False
-            continue
-        if "Port" in line and "TxQ" in line:
-            in_data = False
-            continue
-        if line.lstrip().startswith("---"):
-            in_data = True
-            continue
-        if not in_data:
-            continue
-        parts = line.split()
-        if len(parts) != 6:
-            continue
-        rows.append({
-            "port": parts[0],
-            "txq": _parse_value(parts[1]),
-            "pkts": _parse_value(parts[2]),
-            "bytes": _parse_value(parts[3]),
-            "drop_pkts": _parse_value(parts[4]),
-            "drop_bytes": _parse_value(parts[5]),
-        })
-    return rows
-
-
-def parse_pfc_counters(text: str) -> dict[str, dict[str, list[Any]]]:
-    """Parse ``show pfc counters`` (Rx and Tx tables) into per-port dicts.
-
-    Returns ``{port: {"rx": [<PFC0..PFC7>], "tx": [<PFC0..PFC7>]}}``.
-    Per-priority direction (Rx vs Tx) is load-bearing for DCQCN
-    diagnosis (Doppelgänger §4.1) — aggregate "all PFC" counts erase
-    the per-priority signal.
-    """
-    by_port: dict[str, dict[str, list[Any]]] = {}
-    direction: str | None = None
-    in_data = False
-    for line in _clean_lines(text):
-        if not line:
-            in_data = False
-            continue
-        if "Port Rx" in line:
-            direction = "rx"
-            in_data = False
-            continue
-        if "Port Tx" in line:
-            direction = "tx"
-            in_data = False
-            continue
-        if line.lstrip().startswith("---"):
-            in_data = True
-            continue
-        if not in_data or direction is None:
-            continue
-        parts = line.split()
-        if len(parts) != 1 + _PFC_COLUMNS:
-            continue
-        port = parts[0]
-        values = [_parse_value(p) for p in parts[1:1 + _PFC_COLUMNS]]
-        slot = by_port.setdefault(port, {"rx": [None] * _PFC_COLUMNS,
-                                        "tx": [None] * _PFC_COLUMNS})
-        slot[direction] = values
-    return by_port
-
-
-def parse_pg_watermark_headroom(text: str) -> dict[str, Any]:
-    """Parse ``show priority-group watermark headroom`` per-port.
-
-    Stage A captured a degraded shape: only the Port column was
-    rendered (no PG columns). For each port we observe, record the
-    raw value list when present, else None. When live capture surfaces
-    the populated multi-column shape this parser extends.
-    """
-    by_port: dict[str, Any] = {}
-    in_data = False
-    for line in _clean_lines(text):
-        if not line:
-            continue
-        if line.strip() == "Port" or (
-            "Port" in line and "PG" not in line and "TxQ" not in line
-            and "Rx" not in line and "Tx" not in line
-        ):
-            in_data = False
-            continue
-        if line.lstrip().startswith("---"):
-            in_data = True
-            continue
-        if not in_data:
-            continue
-        parts = line.split()
-        if not parts or not parts[0].startswith("Ethernet"):
-            continue
-        port = parts[0]
-        by_port[port] = (
-            [_parse_value(p) for p in parts[1:]] if len(parts) > 1 else None
-        )
-    return by_port
+    state = oper.get("oper_status") or oper.get("admin_status")
+    return {
+        "switch": switch_name,
+        "port": port_name,
+        "state": state,
+        "rx": rx,
+        "tx": tx,
+        "queues": queues,
+        "pfc_rx": pfc_rx,
+        "pfc_tx": pfc_tx,
+        "pg_watermark_headroom": pg_watermark_headroom,
+    }
 
 
 # ---------- orchestrator ----------
-
-_FABRIC_SHOW_COMMANDS = {
-    "interfaces": "show interfaces counters",
-    "queue":      "show queue counters",
-    "pfc":        "show pfc counters",
-    "pg_wm":      "show priority-group watermark headroom",
-}
-
-# Known-benign stderr signatures from `show priority-group watermark headroom`.
-# The command exits non-zero when no buffer pool watermark counters are
-# instantiated (a minimal config_db.json with no BUFFER_POOL_TABLE or
-# BUFFER_PG_TABLE entries — exactly what the sonic-substrate-recipe ships
-# for the 1-port reference). Substrate-Phase research note 2026-05-21.
-# Treat these as "no PG data" rather than a fatal counter retrieval failure.
-_PG_WATERMARK_EMPTY_MARKERS = (
-    "Object map is empty",
-    "No counter values found",
-)
-
-
-def _safe_pg_watermark_fetch(
-    client: ContainerlabClient,
-    container_name: str,
-    **exec_kwargs,
-) -> str:
-    """Run the PG watermark show command, returning empty text if the
-    command surfaces a known no-data condition. Other failures propagate
-    unchanged so genuine transport or auth problems still fail loud."""
-    try:
-        return client.exec_on_node(
-            container_name, _FABRIC_SHOW_COMMANDS["pg_wm"], **exec_kwargs
-        )
-    except ContainerlabError as exc:
-        stderr = (exc.stderr or "") + (str(exc) or "")
-        if any(marker in stderr for marker in _PG_WATERMARK_EMPTY_MARKERS):
-            return ""
-        raise
-
 
 def get_fabric_counters(client: ContainerlabClient) -> dict[str, Any]:
     """Snapshot per-(switch, port) fabric counters across all switches.
 
     Iterates every node containerlab reports as a switch (role ∈
-    {leaf, spine}); for each switch runs the four show commands via
-    ``client.exec_on_node`` and merges the outputs into a flat list of
-    per-port records. Each record carries the switch's short name and
-    the port identifier alongside nested rx/tx port counters, a
-    queue-level list, per-priority PFC Rx+Tx vectors, and the PG
-    headroom watermark.
+    SWITCH_ROLES); for each switch executes the single bash dump script
+    via ``client.exec_on_node``, parses the dump, and composes
+    per-(switch, port) records keyed off COUNTERS_PORT_NAME_MAP.
 
     Raises :class:`ContainerlabError` if no lab is deployed.
     """
@@ -303,61 +348,17 @@ def get_fabric_counters(client: ContainerlabClient) -> dict[str, Any]:
         if role not in SWITCH_ROLES:
             continue
 
-        # mgmt_ip is required by the SSH-exec path for kind=sonic-vm.
-        # Docker-exec kinds ignore it.
         mgmt_ip = (raw.get("ipv4_address") or "").split("/")[0] or None
-        exec_kwargs = {"kind": kind, "mgmt_ip": mgmt_ip}
+        dump_text = client.exec_on_node(
+            container_name,
+            _FABRIC_DUMP_SCRIPT,
+            kind=kind,
+            mgmt_ip=mgmt_ip,
+        )
+        dump = parse_fabric_dump(dump_text)
 
-        iface_rows = parse_interfaces_counters(
-            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["interfaces"], **exec_kwargs)
-        )
-        queue_rows = parse_queue_counters(
-            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["queue"], **exec_kwargs)
-        )
-        pfc_by_port = parse_pfc_counters(
-            client.exec_on_node(container_name, _FABRIC_SHOW_COMMANDS["pfc"], **exec_kwargs)
-        )
-        pg_by_port = parse_pg_watermark_headroom(
-            _safe_pg_watermark_fetch(client, container_name, **exec_kwargs)
-        )
-
-        # Interfaces table is the index — it lists every port on the
-        # switch even when counters are zero / N/A. Other tables merge
-        # in by port. Ports that appear only in pfc/queue but not in
-        # interfaces are dropped (would indicate a parser disagreement
-        # worth surfacing, but v0.1 stays silent and lets the agent
-        # see only the well-formed records).
-        by_port: dict[str, dict[str, Any]] = {}
-        for row in iface_rows:
-            by_port[row["port"]] = {
-                "switch": short_name,
-                "port": row["port"],
-                "state": row["state"],
-                "rx": row["rx"],
-                "tx": row["tx"],
-                "queues": [],
-                "pfc_rx": [None] * _PFC_COLUMNS,
-                "pfc_tx": [None] * _PFC_COLUMNS,
-                "pg_watermark_headroom": None,
-            }
-        for q in queue_rows:
-            if q["port"] in by_port:
-                by_port[q["port"]]["queues"].append({
-                    "txq": q["txq"],
-                    "pkts": q["pkts"],
-                    "bytes": q["bytes"],
-                    "drop_pkts": q["drop_pkts"],
-                    "drop_bytes": q["drop_bytes"],
-                })
-        for port, pfc in pfc_by_port.items():
-            if port in by_port:
-                by_port[port]["pfc_rx"] = pfc["rx"]
-                by_port[port]["pfc_tx"] = pfc["tx"]
-        for port, pg in pg_by_port.items():
-            if port in by_port:
-                by_port[port]["pg_watermark_headroom"] = pg
-
-        records.extend(by_port.values())
+        for port_name, port_oid in dump["port_map"].items():
+            records.append(_compose_port_record(short_name, port_name, port_oid, dump))
 
     return envelope(
         records,
@@ -366,13 +367,25 @@ def get_fabric_counters(client: ContainerlabClient) -> dict[str, Any]:
     )
 
 
+# ---------- host counters (unchanged) ----------
+
 _ETHTOOL_HEADER = re.compile(r"^NIC statistics:\s*$")
 _ETHTOOL_STAT = re.compile(r"^\s*(\S+):\s*(.+?)\s*$")
 _HOST_DATA_INTERFACE = "eth1"
 
 
+def _parse_ethtool_token(token: str) -> Any:
+    token = token.strip()
+    if token in ("N/A", "n/a", "NA", ""):
+        return None
+    no_commas = token.replace(",", "")
+    if no_commas.lstrip("-").isdigit():
+        return int(no_commas)
+    return token
+
+
 def parse_ethtool_S(text: str) -> dict[str, Any]:
-    """Parse ``ethtool -S <iface>`` into a flat stat->value dict.
+    """Parse ``ethtool -S <iface>`` into a flat stat→value dict.
 
     Lines look like ``     rx_queue_0_drops: 0`` (six-space indent +
     key + colon + value). The ``NIC statistics:`` header is stripped.
@@ -395,7 +408,7 @@ def parse_ethtool_S(text: str) -> dict[str, Any]:
         if not match:
             continue
         key, raw = match.group(1), match.group(2)
-        stats[key] = _parse_value(raw)
+        stats[key] = _parse_ethtool_token(raw)
     return stats
 
 
