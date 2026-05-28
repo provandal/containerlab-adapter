@@ -11,9 +11,11 @@ requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [{ name = "provandal.dev" }]
 dependencies = [
-    "paramiko",      # SSH into Cumulus VX containers for telemetry
-    "python-dotenv", # optional SSH key path overrides
-    "pyyaml",        # read/emit containerlab topology specs
+    "mcp>=1.0",              # MCP server framework (FastMCP)
+    "paramiko",              # SSH into Cumulus VX containers for telemetry
+    "python-dotenv",         # optional SSH key path overrides
+    "pyyaml",                # read/emit containerlab topology specs
+    "substrate-schema>=0.1", # substrate-agnostic response schema v1.1
 ]
 
 [project.optional-dependencies]

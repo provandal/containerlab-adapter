@@ -7,6 +7,9 @@ Doppelgänger. The split (Driver vs Adapter) is per Architecture v0.6
 REPL/tests without MCP scaffolding.
 """
 
-from containerlab_adapter.adapter.server import build_server
+from containerlab_adapter.adapter.server import (
+    NoActiveDeploymentError,
+    build_server,
+)
 
-__all__ = ["build_server"]
+__all__ = ["NoActiveDeploymentError", "build_server"]

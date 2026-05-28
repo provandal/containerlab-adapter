@@ -65,13 +65,6 @@ def test_driver_tool_stubs_raise_notimplemented_with_pending_message(call):
     assert "pending" in str(excinfo.value).lower()
 
 
-def test_adapter_build_server_raises_notimplemented():
-    from containerlab_adapter.adapter import build_server
-
-    with pytest.raises(NotImplementedError, match="pending Stage B"):
-        build_server()
-
-
 # ---------- ContainerlabClient subprocess wrapper ----------
 
 def _fake_subprocess_result(stdout: str = "", stderr: str = "", returncode: int = 0):
